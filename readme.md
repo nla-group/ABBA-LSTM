@@ -1,9 +1,8 @@
 # LSTMs for Time Series Forecasting: A Symbolic Approach
 
 
-
 ### Prerequisites
-Install python packages:
+Install Python packages:
 ```
 pip install -r requirements.txt
 ```
@@ -26,5 +25,5 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 file for details
 
 ## References
-[1] S. Elsworth and S. Güttel. LSTMs for Time Series Prediction: A Symbolic
+[1] S. Elsworth and S. Güttel. LSTMs for Time Series Forecasting: A Symbolic
     Approach. (In Preparation.)
