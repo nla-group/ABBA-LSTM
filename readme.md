@@ -1,4 +1,4 @@
-# LSTMs for Time Series Prediction: A symbolic Approach
+# LSTMs for Time Series Forecasting: A Symbolic Approach
 
 
 
