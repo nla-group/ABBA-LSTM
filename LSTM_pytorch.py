@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 import json
-import pandas as pd
 import matplotlib.pyplot as plt
 plt.style.use('classic')
 from matplotlib.pyplot import plot,title,xlabel,ylabel,legend,grid,style,xlim,ylim,axis,show
@@ -191,7 +190,7 @@ class LSTM_model(object):
         self.normalised_data = normalised_data
 
         # Construct ABBA representation
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             if verbose:
                 print('\nApplying ABBA compression! \n')
             # Apply abba transformation
@@ -214,7 +213,7 @@ class LSTM_model(object):
             self.features = 1
 
         # Build model.
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             if verbose:
                 print('\nAdded dense softmax layer and using categorical_crossentropy loss function! \n')
             self.model = pytorch_LSTM(input_dim=self.features, hidden_dim=self.cells_per_layer, batch_size=1, output_dim=self.features, num_layers=self.num_layers, dropout=self.dropout, symbolic=True)
@@ -287,7 +286,7 @@ class LSTM_model(object):
         y = []
         for w in window:
             # Unable to generalise y for both numeric and symbolic data
-            if isinstance(self.abba, ABBA.ABBA):
+            if isinstance(self.abba, ABBA):
                 y.append(np.array(w[:, -1, :]))
             else:
                 y.append(np.array(w[:, -1]).reshape(-1, self.features))
@@ -297,7 +296,7 @@ class LSTM_model(object):
 
         states = self.model.initialise_states()
 
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             if verbose:
                 print('Sanity check: feed ones through network:', self.model(torch.tensor(np.ones(shape=(self.l,self.features))).float(), states)[0])
         else:
@@ -428,7 +427,7 @@ class LSTM_model(object):
         model = self.model
         pred_l = self.l
 
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             prediction_txt = self.ABBA_representation_string[0:pred_l]
             prediction = self.training_data[0:pred_l]
         else:
@@ -449,7 +448,7 @@ class LSTM_model(object):
             for el in pred_x:
                 p, states = model.forward(torch.tensor(el).float(), (states[0].detach(), states[1].detach()))
 
-            if isinstance(self.abba, ABBA.ABBA):
+            if isinstance(self.abba, ABBA):
                 softmax = torch.nn.Softmax(dim=-1)
                 p = softmax(p).tolist()
                 p = np.array(p)
@@ -466,7 +465,7 @@ class LSTM_model(object):
             else:
                 prediction.append(float(p))
 
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             self.start_prediction_ts =  self.mean + np.dot(self.std,self.abba.inverse_transform(prediction_txt, self.centers, self.normalised_data[0]))
             self.start_prediction_txt = prediction_txt
         else:
@@ -498,7 +497,7 @@ class LSTM_model(object):
         pred_l = self.l
 
         prediction = []
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             prediction_txt = []
         training_data = self.training_data[::]
 
@@ -533,7 +532,7 @@ class LSTM_model(object):
             else:
                 prediction.append(float(p))
 
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             self.point_prediction_ts = self.mean + np.dot(self.std, prediction)
             self.point_prediction_txt = prediction_txt
         else:
@@ -565,7 +564,7 @@ class LSTM_model(object):
         pred_l = self.l
 
 
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             prediction_txt = self.ABBA_representation_string[::]
             prediction = self.training_data[::]
         else:
@@ -586,7 +585,7 @@ class LSTM_model(object):
             for el in pred_x:
                 p, states = model.forward(torch.tensor(el).float(), (states[0].detach(), states[1].detach()))
 
-            if isinstance(self.abba, ABBA.ABBA):
+            if isinstance(self.abba, ABBA):
                 softmax = torch.nn.Softmax(dim=-1)
                 p = softmax(p).tolist()
                 p = np.array(p)
@@ -603,7 +602,7 @@ class LSTM_model(object):
             else:
                 prediction.append(float(p))
 
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             self.end_prediction_ts =  self.mean + np.dot(self.std, self.abba.inverse_transform(prediction_txt, self.centers, self.normalised_data[0]))
             self.end_prediction_txt = prediction_txt
         else:

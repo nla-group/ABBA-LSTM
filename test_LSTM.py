@@ -2,7 +2,7 @@ import unittest
 import warnings
 import numpy as np
 import sys
-from ABBA.ABBA import ABBA
+from ABBA import ABBA as ABBA
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 from LSTM_keras import LSTM_model as LSTM_model_keras
@@ -15,6 +15,9 @@ def ignore_warnings(test_func):
             test_func(self, *args, **kwargs)
     return do_test
 
+# Ignore future warnings caused by tensorflow and numpy
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 class test_LSTM(unittest.TestCase):
     #--------------------------------------------------------------------------#
     # Check all numeric configurations
@@ -24,7 +27,7 @@ class test_LSTM(unittest.TestCase):
         ts = [-2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2]
         model = LSTM_model_keras(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=1, stateful=True, abba=None, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -36,7 +39,7 @@ class test_LSTM(unittest.TestCase):
         ts = [-2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2]
         model = LSTM_model_keras(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=3, stateful=True, abba=None, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -48,7 +51,7 @@ class test_LSTM(unittest.TestCase):
         ts = [1]*30
         model = LSTM_model_keras(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=1, stateful=False, abba=None, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -60,7 +63,7 @@ class test_LSTM(unittest.TestCase):
         ts = [-2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2]
         model = LSTM_model_keras(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=3, stateful=False, abba=None, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -72,7 +75,7 @@ class test_LSTM(unittest.TestCase):
         ts = [-2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2]
         model = LSTM_model_pytorch(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=1, stateful=True, abba=None, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -84,7 +87,7 @@ class test_LSTM(unittest.TestCase):
         ts = [-2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2]
         model = LSTM_model_pytorch(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=3, stateful=True, abba=None, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -96,7 +99,7 @@ class test_LSTM(unittest.TestCase):
         ts = [1]*30
         model = LSTM_model_pytorch(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=1, stateful=False, abba=None, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -108,7 +111,7 @@ class test_LSTM(unittest.TestCase):
         ts = [-2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2]
         model = LSTM_model_pytorch(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=3, stateful=False, abba=None, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -125,7 +128,7 @@ class test_LSTM(unittest.TestCase):
         ts = [-2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2]
         model = LSTM_model_keras(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=1, stateful=True, abba=abba, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -138,7 +141,7 @@ class test_LSTM(unittest.TestCase):
         ts = [-2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2]
         model = LSTM_model_keras(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=3, stateful=True, abba=abba, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -151,7 +154,7 @@ class test_LSTM(unittest.TestCase):
         ts = [1]*30
         model = LSTM_model_keras(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=1, stateful=False, abba=abba, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -164,7 +167,7 @@ class test_LSTM(unittest.TestCase):
         ts = [-2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2]
         model = LSTM_model_keras(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=3, stateful=False, abba=abba, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -177,7 +180,7 @@ class test_LSTM(unittest.TestCase):
         ts = [-2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2]
         model = LSTM_model_pytorch(num_layers=2, cells_per_layer=10, seed=1, dropout=0)
         model.build(ts, l=1, stateful=True, abba=abba, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -190,7 +193,7 @@ class test_LSTM(unittest.TestCase):
         ts = [-2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2]
         model = LSTM_model_pytorch(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=3, stateful=True, abba=abba, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -203,7 +206,7 @@ class test_LSTM(unittest.TestCase):
         ts = [1]*30
         model = LSTM_model_pytorch(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=1, stateful=False, abba=abba, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]
@@ -216,7 +219,7 @@ class test_LSTM(unittest.TestCase):
         ts = [-2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2, -1, 0, 1, 2, 1, 0, -1, -2]
         model = LSTM_model_pytorch(num_layers=2, cells_per_layer=10, seed=0, dropout=0)
         model.build(ts, l=3, stateful=False, abba=abba, verbose=False)
-        model.train(patience=100, max_epoch=1000, verbose=False)
+        model.train(patience=200, max_epoch=1000, verbose=False)
         model.end_prediction(20)
         prediction = model.end_prediction_ts[len(ts):]
         prediction = [round(p) for p in prediction]

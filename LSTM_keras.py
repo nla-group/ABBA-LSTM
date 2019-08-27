@@ -1,3 +1,7 @@
+import warnings
+# Ignore future warnings caused by tensorflow and numpy
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 import numpy as np
 from keras.layers import Dense, LSTM, Activation, Dropout
 from keras.models import Sequential
@@ -5,6 +9,10 @@ from keras.callbacks import EarlyStopping
 from keras.initializers import Orthogonal, glorot_uniform
 from keras.optimizers import Adam
 import json
+import os
+# supress OpenMP warnings when specifying tensorflow threads
+os.environ["KMP_AFFINITY"]= "granularity=fine,verbose,compact,1,0"
+os.environ['KMP_WARNINGS'] = 'off'
 import tensorflow as tf
 import matplotlib.pyplot as plt
 plt.style.use('classic')
@@ -12,7 +20,6 @@ from matplotlib.pyplot import plot,title,xlabel,ylabel,legend,grid,style,xlim,yl
 import sys
 sys.path.append('./ABBA')
 from ABBA import ABBA as ABBA
-import os
 
 class LSTM_model(object):
     """
@@ -81,6 +88,7 @@ class LSTM_model(object):
             # Multiple threads are a potential source of non-reproducible results.
             # For further details, see: https://stackoverflow.com/questions/42022950/
             from keras import backend as k
+
             session_conf = tf.compat.v1.ConfigProto(intra_op_parallelism_threads=1,
                                           inter_op_parallelism_threads=1)
             tf.compat.v1.set_random_seed(seed)
@@ -134,7 +142,7 @@ class LSTM_model(object):
         self.normalised_data = normalised_data
 
         # Construct ABBA representation
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             if verbose:
                 print('\nApplying ABBA compression! \n')
             # Apply abba transformation
@@ -189,7 +197,7 @@ class LSTM_model(object):
                     model.add(LSTM(self.cells_per_layer, stateful=self.stateful, recurrent_activation='tanh', return_sequences=True, dropout=self.dropout, recurrent_dropout=self.dropout))
                     model.add(Dropout(self.dropout))
 
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             if verbose:
                 print('\nAdded dense softmax layer and using categorical_crossentropy loss function! \n')
             if self.seed:
@@ -262,12 +270,12 @@ class LSTM_model(object):
         y = []
         for w in window:
             # Unable to generalise y for both numeric and symbolic data
-            if isinstance(self.abba, ABBA.ABBA):
+            if isinstance(self.abba, ABBA):
                 y.append(np.array(w[:, -1, :]))
             else:
                 y.append(np.array(w[:, -1]))
 
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             self.model.compile(loss='categorical_crossentropy', optimizer=Adam())
             if verbose:
                 print('Feed ones through network:', self.model.evaluate(np.ones(shape=(1,self.l,self.features)), np.zeros(shape=(1,self.features)), batch_size=1, verbose=False))
@@ -353,7 +361,7 @@ class LSTM_model(object):
         model = self.model
         pred_l = self.l
 
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             prediction_txt = self.ABBA_representation_string[0:pred_l]
             prediction = self.training_data[0:pred_l]
         else:
@@ -370,7 +378,7 @@ class LSTM_model(object):
             pred_x =  np.array(window).astype(float)
             pred_x = np.array(pred_x).reshape(-1, pred_l, self.features)
             p = model.predict(pred_x, batch_size = 1)
-            if isinstance(self.abba, ABBA.ABBA):
+            if isinstance(self.abba, ABBA):
                 if randomize_abba:
                     # include some randomness in prediction
                     idx = np.random.choice(range(self.features), p=p[-1].ravel())
@@ -385,7 +393,7 @@ class LSTM_model(object):
             # reset states in case stateless
             model.reset_states()
 
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             self.start_prediction_ts =  self.mean + np.dot(self.std,self.abba.inverse_transform(prediction_txt, self.centers, self.normalised_data[0]))
             self.start_prediction_txt = prediction_txt
         else:
@@ -411,7 +419,7 @@ class LSTM_model(object):
         pred_l = self.l
 
         prediction = []
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             prediction_txt = []
         training_data = self.training_data[::]
 
@@ -426,7 +434,7 @@ class LSTM_model(object):
             window = np.array(window).astype(float)
             pred_x = np.array(window).reshape(-1,  pred_l, self.features)
             p = model.predict(pred_x, batch_size = 1)
-            if isinstance(self.abba, ABBA.ABBA):
+            if isinstance(self.abba, ABBA):
                 if randomize_abba:
                     # include some randomness in prediction
                     idx = np.random.choice(range(self.features), p=p[-1].ravel())
@@ -442,7 +450,7 @@ class LSTM_model(object):
             # reset states in case stateless
             model.reset_states()
 
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             self.point_prediction_ts = self.mean + np.dot(self.std, prediction)
             self.point_prediction_txt = prediction_txt
         else:
@@ -467,7 +475,7 @@ class LSTM_model(object):
         model = self.model
         pred_l = self.l
 
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             prediction_txt = self.ABBA_representation_string[::]
             prediction = self.training_data[::]
         else:
@@ -485,7 +493,7 @@ class LSTM_model(object):
             pred_x = np.array(pred_x).reshape(-1, pred_l, self.features)
             p = model.predict(pred_x, batch_size = 1)
 
-            if isinstance(self.abba, ABBA.ABBA):
+            if isinstance(self.abba, ABBA):
                 if randomize_abba:
                     # include some randomness in prediction
                     idx = np.random.choice(range(self.features), p=p[-1].ravel())
@@ -501,7 +509,7 @@ class LSTM_model(object):
             # reset states in case stateless
             model.reset_states()
 
-        if isinstance(self.abba, ABBA.ABBA):
+        if isinstance(self.abba, ABBA):
             self.end_prediction_ts =  self.mean + np.dot(self.std, self.abba.inverse_transform(prediction_txt, self.centers, self.normalised_data[0]))
             self.end_prediction_txt = prediction_txt
         else:
