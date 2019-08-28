@@ -1,25 +1,30 @@
-import warnings
 # Ignore future warnings caused by tensorflow and numpy
+import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-import numpy as np
+# Check abba available to see if pip installed requirements.txt
+import importlib
+spec = importlib.util.find_spec("ABBA")
+if spec is None:
+    warning.warn("Try: pip install -r 'requirements.txt'")
+from ABBA import ABBA as ABBA
+
+# supress OpenMP warnings when specifying tensorflow threads
+import os
+os.environ["KMP_AFFINITY"]= "granularity=fine,verbose,compact,1,0"
+os.environ['KMP_WARNINGS'] = 'off'
 from keras.layers import Dense, LSTM, Activation, Dropout
 from keras.models import Sequential
 from keras.callbacks import EarlyStopping
 from keras.initializers import Orthogonal, glorot_uniform
 from keras.optimizers import Adam
-import json
-import os
-# supress OpenMP warnings when specifying tensorflow threads
-os.environ["KMP_AFFINITY"]= "granularity=fine,verbose,compact,1,0"
-os.environ['KMP_WARNINGS'] = 'off'
 import tensorflow as tf
+
+# import all other modules
+import numpy as np
 import matplotlib.pyplot as plt
 plt.style.use('classic')
 from matplotlib.pyplot import plot,title,xlabel,ylabel,legend,grid,style,xlim,ylim,axis,show
-import sys
-sys.path.append('./ABBA')
-from ABBA import ABBA as ABBA
 
 class LSTM_model(object):
     """
@@ -46,6 +51,7 @@ class LSTM_model(object):
     features                        - size of the alphabet
     model                           - network model
     patience                        - patience parameter for training
+    acceptable_loss                 - acceptable loss for training
     optimizer                       - optimization algorithm used
     epoch                           - number of iterations used during training
     loss                            - list of loss value at each iteration
@@ -84,6 +90,7 @@ class LSTM_model(object):
         self.seed = seed
 
         if seed != None:
+            tf.compat.v1.set_random_seed(seed)
             # Force TensorFlow to use single thread.
             # Multiple threads are a potential source of non-reproducible results.
             # For further details, see: https://stackoverflow.com/questions/42022950/
@@ -91,7 +98,8 @@ class LSTM_model(object):
 
             session_conf = tf.compat.v1.ConfigProto(intra_op_parallelism_threads=1,
                                           inter_op_parallelism_threads=1)
-            tf.compat.v1.set_random_seed(seed)
+            sess = tf.compat.v1.Session(graph=tf.compat.v1.get_default_graph(), config=session_conf)
+            k.set_session(sess)
 
             # prevent warning error about tensorflow build
             tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
@@ -218,7 +226,7 @@ class LSTM_model(object):
             print('\nModel built! \n')
 
 
-    def train(self, patience=100, max_epoch=100000, verbose=True):
+    def train(self, patience=100, max_epoch=100000, acceptable_loss=np.inf, verbose=True):
         """
         Train model on given time series.
 
@@ -241,6 +249,7 @@ class LSTM_model(object):
 
         epoch = max_epoch
         self.patience = patience
+        self.acceptable_loss = acceptable_loss
 
         # length of data required for prediction
         len_data = len(self.training_data)
@@ -304,7 +313,7 @@ class LSTM_model(object):
                 if loss[iter] >= min_loss:
                     if iter%100 == 0 and verbose:
                         print('iteration:', iter)
-                    if iter - min_loss_ind >= self.patience:
+                    if iter - min_loss_ind >= self.patience and loss[iter] < self.acceptable_loss:
                         break
                 else:
                     min_loss = loss[iter]
@@ -323,7 +332,7 @@ class LSTM_model(object):
                 if (h.history['loss'])[-1] >= min_loss:
                     if iter%100 == 0 and verbose:
                         print('iteration:', iter)
-                    if iter - min_loss_ind >= self.patience:
+                    if iter - min_loss_ind >= self.patience and loss[iter] < self.acceptable_loss:
                         break
                 else:
                     min_loss = (h.history['loss'])[-1]

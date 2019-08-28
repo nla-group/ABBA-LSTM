@@ -1,13 +1,18 @@
-import numpy as np
+# Check abba available to see if pip installed requirements.txt
+import importlib
+import warnings
+spec = importlib.util.find_spec("ABBA")
+if spec is None:
+    warning.warn("Try: pip install -r 'requirements.txt'")
+from ABBA import ABBA as ABBA
+
+# import all other modules
 import torch
-import json
+import numpy as np
 import matplotlib.pyplot as plt
 plt.style.use('classic')
 from matplotlib.pyplot import plot,title,xlabel,ylabel,legend,grid,style,xlim,ylim,axis,show
-import sys
-sys.path.append('./ABBA')
-from ABBA import ABBA as ABBA
-import os
+
 
 class pytorch_LSTM(torch.nn.Module):
     """
@@ -103,6 +108,7 @@ class LSTM_model(object):
     features                        - size of the alphabet
     model                           - network model
     patience                        - patience parameter for training
+    acceptable_loss                 - acceptable loss for training
     optimizer                       - optimization algorithm used
     epoch                           - number of iterations used during training
     loss                            - list of loss value at each iteration
@@ -233,7 +239,7 @@ class LSTM_model(object):
         self.model.init_weights(self.model)
 
 
-    def train(self, patience=100, max_epoch=100000, augmentation=True, verbose=True):
+    def train(self, patience=100, max_epoch=100000, acceptable_loss=np.inf, verbose=True):
         """
         Train model on given time series.
 
@@ -255,8 +261,8 @@ class LSTM_model(object):
         """
 
         epoch = max_epoch
-        self.augmentation = augmentation
         self.patience = patience
+        self.acceptable_loss = acceptable_loss
 
         # length of data required for prediction
         len_data = len(self.training_data)
@@ -346,7 +352,7 @@ class LSTM_model(object):
                 if vec_loss[iter] >= min_loss:
                     if iter%100 == 0 and verbose:
                         print('iteration:', iter)
-                    if iter - min_loss_ind >= self.patience:
+                    if iter - min_loss_ind >= self.patience and vec_loss[iter]<self.acceptable_loss:
                         break
                 else:
                     min_loss = vec_loss[iter]
@@ -389,7 +395,7 @@ class LSTM_model(object):
                 if vec_loss[iter] >= min_loss:
                     if iter%100 == 0 and verbose:
                         print('iteration:', iter)
-                    if iter - min_loss_ind >= self.patience:
+                    if iter - min_loss_ind >= self.patience and vec_loss[iter]<self.acceptable_loss:
                         break
                 else:
                     min_loss = vec_loss[iter]
