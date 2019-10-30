@@ -18,6 +18,8 @@ from keras.models import Sequential
 from keras.callbacks import EarlyStopping
 from keras.initializers import Orthogonal, glorot_uniform
 from keras.optimizers import Adam
+from keras import backend as k
+from keras.models import model_from_json
 import tensorflow as tf
 
 # import all other modules
@@ -25,6 +27,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 plt.style.use('classic')
 from matplotlib.pyplot import plot,title,xlabel,ylabel,legend,grid,style,xlim,ylim,axis,show
+from collections import Counter
 
 class LSTM_model(object):
     """
@@ -43,7 +46,7 @@ class LSTM_model(object):
     mean                            - mean of ts
     std                             - standard deviation of ts
     normalised_data                 - z-normalised version of ts
-    ABBA_representation_symbolic    - ABBA string representation of ts
+    ABBA_representation_string      - ABBA string representation of ts
     centers                         - cluster centers from ABBA compression
     ABBA_representation_numeric     - ABBA numeric representation
     alphabet                        - alphabet used in ABBA compression
@@ -57,10 +60,10 @@ class LSTM_model(object):
     loss                            - list of loss value at each iteration
     start_prediction_ts             - numeric start prediction
     start_prediction_txt            - symbolic start prediction
-    point_prediction_ts             - numeric point prediction
-    point_prediction_txt            - symbolic point prediction
-    end_prediction_ts               - numeric end prediction
-    end_prediction_txt              - symbolic end prediction
+    in_sample_ts                    - numeric in sample forecast
+    in_sample_txt                   - symbolic in sample forecast
+    out_of_sample_ts                - numeric out of sample forecast
+    out_of_sample_txt               - symbolic out of sample forecast
     """
 
     def __init__(self, num_layers=2, cells_per_layer=50, dropout=0.5, seed=None):
@@ -94,7 +97,6 @@ class LSTM_model(object):
             # Force TensorFlow to use single thread.
             # Multiple threads are a potential source of non-reproducible results.
             # For further details, see: https://stackoverflow.com/questions/42022950/
-            from keras import backend as k
 
             session_conf = tf.compat.v1.ConfigProto(intra_op_parallelism_threads=1,
                                           inter_op_parallelism_threads=1)
@@ -154,8 +156,10 @@ class LSTM_model(object):
             if verbose:
                 print('\nApplying ABBA compression! \n')
             # Apply abba transformation
-            self.ABBA_representation_string, self.centers = abba.transform(self.normalised_data)
-            self.ABBA_representation_numerical = abba.inverse_transform(self.ABBA_representation_string, self.centers, self.normalised_data[0])
+            self.pieces = abba.compress(self.normalised_data)
+            self.ABBA_representation_string, self.centers = abba.digitize(self.pieces)
+            # Apply inverse transform.
+            self.ABBA_representation_numerical = self.mean + np.dot(self.std, abba.inverse_transform(self.ABBA_representation_string, self.centers, self.normalised_data[0]))
 
             # One hot encode symbolic representation. Create list of all symbols
             # in case symbol does not occur in symbolic representation. (example:
@@ -205,6 +209,7 @@ class LSTM_model(object):
                     model.add(LSTM(self.cells_per_layer, stateful=self.stateful, recurrent_activation='tanh', return_sequences=True, dropout=self.dropout, recurrent_dropout=self.dropout))
                     model.add(Dropout(self.dropout))
 
+        # ABBA requires softmax layer rather than dense layer with no activation.
         if isinstance(self.abba, ABBA):
             if verbose:
                 print('\nAdded dense softmax layer and using categorical_crossentropy loss function! \n')
@@ -241,6 +246,9 @@ class LSTM_model(object):
         max_epoch - int
                 Maximum number of iterations through the training data during
                 training process.
+
+        acceptable_loss - float
+                The maximum loss allowed before early stoppping criterion can be met.
 
         verbose - bool
                 True - print progress
@@ -293,6 +301,42 @@ class LSTM_model(object):
             if verbose:
                 print('Feed ones through network:', self.model.evaluate(np.ones(shape=(1,self.l,1)), np.zeros(shape=(1,1)), batch_size=1, verbose=False))
 
+        weight_restarts = 10
+        store_weights = [0]*weight_restarts
+        initial_loss = [0]*weight_restarts
+        for i in range(weight_restarts):
+            if self.stateful:
+                h = self.model.fit(x[0], y[0], epochs=1, batch_size=1, verbose=0, shuffle=False)
+                initial_loss[i] = (h.history['loss'])[-1]
+                self.model.reset_states()
+                store_weights[i] = self.model.get_weights()
+
+                # quick hack to reinitialise weights
+                json_string = self.model.to_json()
+                self.model = model_from_json(json_string)
+                if isinstance(self.abba, ABBA):
+                    self.model.compile(loss='categorical_crossentropy', optimizer=Adam())
+                else:
+                    self.model.compile(loss='mse', optimizer=Adam())
+            else:
+                h = self.model.fit(x[0], y[0], epochs=1, batch_size=1, verbose=0, shuffle=False) # no shuffling to remove randomness
+                initial_loss[i] = (h.history['loss'])[-1]
+                store_weights[i] = self.model.get_weights()
+                self.model.reset_states()
+
+                # quick hack to reinitialise weights
+                json_string = self.model.to_json()
+                self.model = model_from_json(json_string)
+                if isinstance(self.abba, ABBA):
+                    self.model.compile(loss='categorical_crossentropy', optimizer=Adam())
+                else:
+                    self.model.compile(loss='mse', optimizer=Adam())
+        if verbose:
+            print('Initial loss:', initial_loss)
+        m = np.argmin(initial_loss)
+        self.model.set_weights(store_weights[int(m)])
+        del store_weights
+
         if verbose:
             print('\nTraining... \n')
 
@@ -302,6 +346,7 @@ class LSTM_model(object):
         losses = [0]*self.num_augs
         if self.stateful: # no shuffle and reset state manually
             for iter in range(epoch):
+
                 rint = np.random.permutation(self.num_augs)
 
                 for r in rint:
@@ -313,7 +358,7 @@ class LSTM_model(object):
                 if loss[iter] >= min_loss:
                     if iter%100 == 0 and verbose:
                         print('iteration:', iter)
-                    if iter - min_loss_ind >= self.patience and loss[iter] < self.acceptable_loss:
+                    if iter - min_loss_ind >= self.patience and min_loss < self.acceptable_loss:
                         break
                 else:
                     min_loss = loss[iter]
@@ -351,7 +396,7 @@ class LSTM_model(object):
         self.loss = loss[0:iter]
 
 
-    def start_prediction(self, use_recurrence=True, randomize_abba=False):
+    def start_prediction(self, randomize_abba=False):
         """
         Start prediction takes the first data points of the training data then
         makes a one step prediction. We then assume the one step prediction is true
@@ -362,9 +407,9 @@ class LSTM_model(object):
         Parameters
         ----------
         randomize_abba - bool
-                When predicting using abba representation, we can either predict most
-                likely symbol or include randomness in prediction. See jupyter notebook
-                random_prediction_ABBA.ipynb.
+                When forecasting using ABBA representation, we can either
+                forecast most likely symbol or include randomness in forecast.
+                See jupyter notebook random_prediction_ABBA.ipynb.
         """
 
         model = self.model
@@ -409,19 +454,19 @@ class LSTM_model(object):
             self.start_prediction_ts = self.mean + np.dot(self.std, prediction)
 
 
-    def point_prediction(self, use_recurrence=True, randomize_abba=False):
+    def forecast_in_sample(self, randomize_abba=False):
         """
-        Point prediction consists of making a one step prediction at every point of
+        In sample forecasting makes a one step prediction at every point of
         the training data. When ABBA is being used, this equates to one symbol
-        symbol prediction, and so the plot will look a lot like multistep prediction
+        symbol forecast, and so the plot will look a lot like multistep forecast
         for the numerical case.
 
         Parameters
         ----------
         randomize_abba - bool
-                When predicting using abba representation, we can either predict most
-                likely symbol or include randomness in prediction. See jupyter notebook
-                random_prediction_ABBA.ipynb.
+                When forecasting using ABBA representation, we can either
+                forecast most likely symbol or include randomness in forecast.
+                See jupyter notebook random_prediction_ABBA.ipynb.
         """
 
         model = self.model
@@ -460,54 +505,80 @@ class LSTM_model(object):
             model.reset_states()
 
         if isinstance(self.abba, ABBA):
-            self.point_prediction_ts = self.mean + np.dot(self.std, prediction)
-            self.point_prediction_txt = prediction_txt
+            self.in_sample_ts = self.mean + np.dot(self.std, prediction)
+            self.in_sample_txt = prediction_txt
         else:
-            self.point_prediction_ts = self.mean +np.dot(self.std, prediction)
+            self.in_sample_ts = self.mean +np.dot(self.std, prediction)
 
 
-    def end_prediction(self, l, use_recurrence=True, randomize_abba=False):
+    def forecast_out_of_sample(self, l, randomize_abba=False, patches=True, remove_anomaly=True):
         """
-        We take the training data and then predict what happens next. This is clearly
-        the most useful as we are predicting data the model has never seen. The other
-        methods of prediction merely represent how well the LSTM has 'learnt' the
-        behaviour of the time series.
+        Given a fully trained LSTM model, forecast the next l subsequent datapoints.
+        If ABBA representation has been used, this will forecast l symbols.
 
         Parameters
         ----------
+        l - float
+                Number of forecasted out_of_sample datapoints.
+
         randomize_abba - bool
-                When predicting using abba representation, we can either predict most
-                likely symbol or include randomness in prediction. See jupyter notebook
-                random_prediction_ABBA.ipynb.
+                When forecasting using ABBA representation, we can either
+                forecast most likely symbol or include randomness in forecast.
+                See jupyter notebook random_prediction_ABBA.ipynb.
+
+        patches - bool
+                Use patches when creating forecasted time series. See ABBA module.
+
+        remove_anomaly - bool
+                Prevent forecast of any symbol which occurred only once during
+                ABBA construction
         """
-
-        model = self.model
-        pred_l = self.l
-
         if isinstance(self.abba, ABBA):
-            prediction_txt = self.ABBA_representation_string[::]
+            prediction_txt = ''
             prediction = self.training_data[::]
+
+            if remove_anomaly:
+                c = dict(Counter(self.ABBA_representation_string))
+                single_letters = [ord(key)-97 for key in c if c[key]==1]
         else:
             prediction = self.training_data[::].tolist()
 
+        # Recursively make l one-step forecasts
         for ind in range(len(self.training_data), len(self.training_data) + l):
+
+            # Build data to feed into model
             if self.stateful:
                 window = []
-                for i in np.arange(ind%pred_l, ind, pred_l):
-                    window.append(prediction[i:i+pred_l])
+                for i in np.arange(ind%self.l, ind, self.l):
+                    window.append(prediction[i:i+self.l])
             else:
-                window = prediction[-pred_l:]
-
+                window = prediction[-self.l:]
             pred_x =  np.array(window).astype(float)
-            pred_x = np.array(pred_x).reshape(-1, pred_l, self.features)
-            p = model.predict(pred_x, batch_size = 1)
+            pred_x = np.array(pred_x).reshape(-1, self.l, self.features)
 
+            # Feed through model
+            p = self.model.predict(pred_x, batch_size = 1)
+
+            # Convert to appropriate form
             if isinstance(self.abba, ABBA):
                 if randomize_abba:
                     # include some randomness in prediction
-                    idx = np.random.choice(range(self.features), p=p[-1].ravel())
+                    if remove_anomaly:
+                        distribution = p[-1].ravel()
+                        distribution[single_letters] = 0 # remove probability form single letters
+                        distribution /= sum(distribution) # scale so sum = 1
+                        idx = np.random.choice(range(self.features), p=distribution)
+                    else:
+                        idx = np.random.choice(range(self.features), p=p[-1].ravel())
                 else:
-                    idx = np.argmax(p[-1], axis = 0)
+                    if remove_anomaly:
+                        distribution = p[-1].ravel()
+                        distribution[single_letters] = 0 # remove probability form single letters
+                        idx = np.argmax(distribution, axis = 0)
+                    else:
+                        idx = np.argmax(p[-1], axis = 0)
+
+                # Add forecast result to appropriate vectors.
                 prediction_txt += self.alphabet[idx]
                 add = np.zeros([1, self.features])
                 add[0, idx] = 1
@@ -516,13 +587,96 @@ class LSTM_model(object):
                 prediction.append(float(p[-1]))
 
             # reset states in case stateless
-            model.reset_states()
+            self.model.reset_states()
 
         if isinstance(self.abba, ABBA):
-            self.end_prediction_ts =  self.mean + np.dot(self.std, self.abba.inverse_transform(prediction_txt, self.centers, self.normalised_data[0]))
-            self.end_prediction_txt = prediction_txt
+            if patches:
+                ABBA_patches = self.abba.get_patches(self.normalised_data, self.pieces, self.ABBA_representation_string, self.centers)
+                # Construct mean of each patch
+                d = {}
+                for key in ABBA_patches:
+                    d[key] = list(np.mean(ABBA_patches[key], axis=0))
+
+                # Stitch patches together
+                patched_ts = np.array([self.normalised_data[-1]])
+                for letter in prediction_txt:
+                    patch = d[letter]
+                    patch -= patch[0] - patched_ts[-1] # shift vertically
+                    patched_ts = np.hstack((patched_ts, patch[1:]))
+                self.out_of_sample_ts =  self.mean + np.dot(self.std, patched_ts[1:])
+
+            else:
+                self.out_of_sample_ts =  self.mean + np.dot(self.std, self.abba.inverse_transform(prediction_txt, self.centers, self.normalised_data[0]))
+
+            self.out_of_sample_txt = prediction_txt
         else:
-            self.end_prediction_ts = self.mean + np.dot(self.std, prediction)
+            # Reverse normalisation procedure
+            self.out_of_sample_ts = self.mean + np.dot(self.std, prediction[len(self.training_data):])
+
+
+    def end_average_prediction(self, l, prob_int=0.1, randomize_abba=False):
+        """
+        Development function, not currently used.
+        """
+
+        if not isinstance(self.abba, ABBA):
+            return None
+
+        model = self.model
+        pred_l = self.l
+
+        prediction_txts = [self.ABBA_representation_string[::]]
+        predictions = [self.training_data[::]]
+
+        for ind in range(len(self.training_data), len(self.training_data) + l):
+            # run through existing predictions
+            for j in range(len(predictions)):
+                if self.stateful:
+                    window = []
+                    for i in np.arange(ind%pred_l, ind, pred_l):
+                        window.append(predictions[j][i:i+pred_l])
+                else:
+                    window = prediction[j][-pred_l:]
+
+                pred_x =  np.array(window).astype(float)
+                pred_x = np.array(pred_x).reshape(-1, pred_l, self.features)
+                p = model.predict(pred_x, batch_size = 1)
+
+                max_prob = np.max(p[-1], axis = 0)
+                idxs = np.where(p[-1] > (max_prob-prob_int))
+
+                for count, idx in enumerate(idxs[0]):
+                    if count == 0:
+                        prediction_txts[j] += self.alphabet[int(idx)]
+                        add = np.zeros([1, self.features])
+                        add[0, idx] = 1
+                        predictions[j].append((add.tolist())[0])
+                    else:
+                        prediction_txts.append(prediction_txts[j]+self.alphabet[int(idx)])
+                        add = np.zeros([1, self.features])
+                        add[0, idx] = 1
+                        predictions.append(predictions[j]+[(add.tolist())[0]])
+
+                # reset states in case stateless
+                model.reset_states()
+
+        self.end_average_prediction_ts = []
+        self.end_average_prediction_txt = prediction_txts
+        for prediction_txt in prediction_txts:
+            self.end_average_prediction_ts.append(self.mean + np.dot(self.std, self.abba.inverse_transform(prediction_txt, self.centers, self.normalised_data[0])))
+
+        min_so_far = np.inf
+        for ts in self.end_average_prediction_ts:
+            if len(ts) < min_so_far:
+                min_so_far = len(ts)
+
+        mu = np.zeros(min_so_far)
+        for ts in self.end_average_prediction_ts:
+            mu += np.array(ts[0:min_so_far])
+
+        mu = mu/len(self.end_average_prediction_ts)
+
+        self.end_average_prediction_avg = mu
 
 
     def _figure(self, fig_ratio=.7, fig_scale=1):

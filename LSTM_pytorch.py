@@ -12,7 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 plt.style.use('classic')
 from matplotlib.pyplot import plot,title,xlabel,ylabel,legend,grid,style,xlim,ylim,axis,show
-
+from collections import Counter
 
 class pytorch_LSTM(torch.nn.Module):
     """
@@ -114,10 +114,10 @@ class LSTM_model(object):
     loss                            - list of loss value at each iteration
     start_prediction_ts             - numeric start prediction
     start_prediction_txt            - symbolic start prediction
-    point_prediction_ts             - numeric point prediction
-    point_prediction_txt            - symbolic point prediction
-    end_prediction_ts               - numeric end prediction
-    end_prediction_txt              - symbolic end prediction
+    in_sample_ts                    - numeric in sample forecast
+    in_sample_txt                   - symbolic in sample forecast
+    out_of_sample_ts                - numeric out of sample forecast
+    out_of_sample_txt               - symbolic out of sample forecast
     """
 
     def __init__(self, num_layers=2, cells_per_layer=50, dropout=0.5, seed=None):
@@ -200,8 +200,10 @@ class LSTM_model(object):
             if verbose:
                 print('\nApplying ABBA compression! \n')
             # Apply abba transformation
-            self.ABBA_representation_string, self.centers = abba.transform(self.normalised_data)
-            self.ABBA_representation_numerical = abba.inverse_transform(self.ABBA_representation_string, self.centers, self.normalised_data[0])
+            self.pieces = abba.compress(self.normalised_data)
+            self.ABBA_representation_string, self.centers = abba.digitize(self.pieces)
+            # Apply inverse transform.
+            self.ABBA_representation_numerical = self.mean + np.dot(self.std, abba.inverse_transform(self.ABBA_representation_string, self.centers, self.normalised_data[0]))
 
             # One hot encode symbolic representation. Create list of all symbols
             # in case symbol does not occur in symbolic representation. (example:
@@ -254,6 +256,9 @@ class LSTM_model(object):
         max_epoch - int
                 Maximum number of iterations through the training data during
                 training process.
+
+        acceptable_loss - float
+                The maximum loss allowed before early stoppping criterion can be met.
 
         verbose - bool
                 True - print progress
@@ -308,6 +313,34 @@ class LSTM_model(object):
         else:
             if verbose:
                 print('Sanity check: feed ones through network:', self.model(torch.tensor(np.ones(shape=(self.l,self.features))).float(), states)[0])
+
+        # Try weight restarts
+        weight_restarts = 10
+        store_weights = [0]*weight_restarts
+        initial_loss = [0]*weight_restarts
+        for i in range(weight_restarts):
+            # reset cell state
+            states = self.model.initialise_states()
+            y_pred, states = self.model(x[0][0], (states[0].detach(), states[1].detach()))
+
+            # calculate loss
+            if self.features == 1:
+                self.loss = self.loss_fn(y_pred, y[0][0])
+            else:
+                target = torch.tensor([np.argmax(y[0][0], axis = 0)])
+                self.loss = self.loss_fn(y_pred.reshape(1,-1), target)
+
+            initial_loss[i] = self.loss.data
+            store_weights[i] = self.model.state_dict()
+
+            # Re initialise weights
+            self.model.init_weights(self.model)
+
+        if verbose:
+            print('Initial loss:', initial_loss)
+        m = np.argmin(initial_loss)
+        self.model.load_state_dict(store_weights[int(m)])
+        del store_weights
 
         if verbose:
             print('\nTraining... \n')
@@ -414,7 +447,7 @@ class LSTM_model(object):
         self.loss = vec_loss[0:iter]
 
 
-    def start_prediction(self, use_recurrence=True, randomize_abba=False):
+    def start_prediction(self, randomize_abba=False):
         """
         Start prediction takes the first data points of the training data then
         makes a one step prediction. We then assume the one step prediction is true
@@ -478,24 +511,19 @@ class LSTM_model(object):
             self.start_prediction_ts = self.mean + np.dot(self.std, prediction)
 
 
-    def point_prediction(self, use_recurrence=True, randomize_abba=False):
+    def forecast_in_sample(self, randomize_abba=False):
         """
-        Point prediction consists of making a one step prediction at every point of
+        In sample forecasting makes a one step prediction at every point of
         the training data. When ABBA is being used, this equates to one symbol
-        symbol prediction, and so the plot will look a lot like multistep prediction
+        symbol forecast, and so the plot will look a lot like multistep forecast
         for the numerical case.
 
         Parameters
         ----------
-        use_recurrence - bool
-                If recurrence weights are used during prediction. If stateful, then
-                prediction can be slow. Setting to false will provide rapid prediction
-                at the cost of suboptimal result.
-
         randomize_abba - bool
-                When predicting using abba representation, we can either predict most
-                likely symbol or include randomness in prediction. See jupyter notebook
-                random_prediction_ABBA.ipynb.
+                When forecasting using ABBA representation, we can either
+                forecast most likely symbol or include randomness in forecast.
+                See jupyter notebook random_prediction_ABBA.ipynb.
         """
 
         model = self.model
@@ -545,24 +573,27 @@ class LSTM_model(object):
             self.point_prediction_ts = self.mean +np.dot(self.std, prediction)
 
 
-    def end_prediction(self, l, use_recurrence=True, randomize_abba=False):
+    def forecast_out_of_sample(self, l, randomize_abba=False, patches=True, remove_anomaly=True):
         """
-        We take the training data and then predict what happens next. This is clearly
-        the most useful as we are predicting data the model has never seen. The other
-        methods of prediction merely represent how well the LSTM has 'learnt' the
-        behaviour of the time series.
+        Given a fully trained LSTM model, forecast the next l subsequent datapoints.
+        If ABBA representation has been used, this will forecast l symbols.
 
         Parameters
         ----------
-        use_recurrence - bool
-                If recurrence weights are used during prediction. If stateful, then
-                prediction can be slow. Setting to false will provide rapid prediction
-                at the cost of suboptimal result.
+        l - float
+                Number of forecasted out_of_sample datapoints.
 
         randomize_abba - bool
-                When predicting using abba representation, we can either predict most
-                likely symbol or include randomness in prediction. See jupyter notebook
-                random_prediction_ABBA.ipynb.
+                When forecasting using ABBA representation, we can either
+                forecast most likely symbol or include randomness in forecast.
+                See jupyter notebook random_prediction_ABBA.ipynb.
+
+        patches - bool
+                Use patches when creating forecasted time series. See ABBA module.
+
+        remove_anomaly - bool
+                Prevent forecast of any symbol which occurred only once during
+                ABBA construction
         """
 
         model = self.model
@@ -571,26 +602,34 @@ class LSTM_model(object):
 
 
         if isinstance(self.abba, ABBA):
-            prediction_txt = self.ABBA_representation_string[::]
+            prediction_txt = ''
             prediction = self.training_data[::]
+
+            if remove_anomaly:
+                c = dict(Counter(self.ABBA_representation_string))
+                single_letters = [ord(key)-97 for key in c if c[key]==1]
         else:
             prediction = self.training_data[::].tolist()
 
+        # Recursively make l one-step forecasts
         for ind in range(len(self.training_data), len(self.training_data) + l):
+
+            # Build data to feed into model
             if self.stateful:
                 window = []
                 for i in np.arange(ind%pred_l, ind, pred_l):
                     window.append(prediction[i:i+pred_l])
             else:
                 window = prediction[-pred_l:]
-
             pred_x =  np.array(window).astype(float)
             pred_x = np.array(pred_x).reshape(-1, pred_l, self.features)
 
+            # Feed through model
             states = model.initialise_states()
             for el in pred_x:
                 p, states = model.forward(torch.tensor(el).float(), (states[0].detach(), states[1].detach()))
 
+            # Convert to appropriate form
             if isinstance(self.abba, ABBA):
                 softmax = torch.nn.Softmax(dim=-1)
                 p = softmax(p).tolist()
@@ -598,9 +637,22 @@ class LSTM_model(object):
                 p /= p.sum()
                 if randomize_abba:
                     # include some randomness in prediction
-                    idx = np.random.choice(range(self.features), p=(p.ravel()))
+                    if remove_anomaly:
+                        distribution = p
+                        distribution[single_letters] = 0 # remove probability form single letters
+                        distribution /= sum(distribution) # scale so sum = 1
+                        idx = np.random.choice(range(self.features), p=distribution)
+                    else:
+                        idx = np.random.choice(range(self.features), p=(p.ravel()))
                 else:
-                    idx = np.argmax(list(p), axis = 0)
+                    if remove_anomaly:
+                        distribution = p
+                        distribution[single_letters] = 0 # remove probability form single letters
+                        idx = np.argmax(distribution, axis = 0)
+                    else:
+                        idx = np.argmax(list(p), axis = 0)
+
+                # Add forecast result to appropriate vectors.
                 prediction_txt += self.alphabet[idx]
                 add = np.zeros([1, self.features])
                 add[0, idx] = 1
@@ -609,11 +661,28 @@ class LSTM_model(object):
                 prediction.append(float(p))
 
         if isinstance(self.abba, ABBA):
-            self.end_prediction_ts =  self.mean + np.dot(self.std, self.abba.inverse_transform(prediction_txt, self.centers, self.normalised_data[0]))
-            self.end_prediction_txt = prediction_txt
-        else:
-            self.end_prediction_ts = self.mean + np.dot(self.std, prediction)
+            if patches:
+                ABBA_patches = self.abba.get_patches(self.normalised_data, self.pieces, self.ABBA_representation_string, self.centers)
+                # Construct mean of each patch
+                d = {}
+                for key in ABBA_patches:
+                    d[key] = list(np.mean(ABBA_patches[key], axis=0))
 
+                # Stitch patches together
+                patched_ts = np.array([self.normalised_data[-1]])
+                for letter in prediction_txt:
+                    patch = d[letter]
+                    patch -= patch[0] - patched_ts[-1] # shift vertically
+                    patched_ts = np.hstack((patched_ts, patch[1:]))
+                self.out_of_sample_ts =  self.mean + np.dot(self.std, patched_ts[1:])
+
+            else:
+                self.out_of_sample_ts =  self.mean + np.dot(self.std, self.abba.inverse_transform(prediction_txt, self.centers, self.normalised_data[0]))
+
+            self.out_of_sample_txt = prediction_txt
+        else:
+            # Reverse normalisation procedure
+            self.out_of_sample_ts = self.mean + np.dot(self.std, prediction[len(self.training_data):])
 
     def _figure(self, fig_ratio=.7, fig_scale=1):
         """
