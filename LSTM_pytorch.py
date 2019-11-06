@@ -112,8 +112,8 @@ class LSTM_model(object):
     optimizer                       - optimization algorithm used
     epoch                           - number of iterations used during training
     loss                            - list of loss value at each iteration
-    start_prediction_ts             - numeric start prediction
-    start_prediction_txt            - symbolic start prediction
+    generate_ts                     - numeric generative forecast
+    generate_txt                    - symbolic generative forecast
     in_sample_ts                    - numeric in sample forecast
     in_sample_txt                   - symbolic in sample forecast
     out_of_sample_ts                - numeric out of sample forecast
@@ -443,17 +443,15 @@ class LSTM_model(object):
             print('\nTraining complete! \n')
 
         self.model.load_state_dict(old_weights)
-        self.epoch = iter
-        self.loss = vec_loss[0:iter]
+        self.epoch = iter+1
+        self.loss = vec_loss[0:iter+1]
 
 
-    def start_prediction(self, randomize_abba=False):
+    def forecast_generate(self, randomize_abba=False, patches=True, remove_anomaly=True):
         """
-        Start prediction takes the first data points of the training data then
-        makes a one step prediction. We then assume the one step prediction is true
-        and continue to predict forward using the previously predicted data. We
-        continue until we have constructed a time series the same length as the
-        training data.
+        Generative forecasting takes the first l elements of the training data
+        then iteratively forecasts to produce a time series of similar length to
+        the training data.
 
         Parameters
         ----------
@@ -461,32 +459,47 @@ class LSTM_model(object):
                 When predicting using abba representation, we can either predict most
                 likely symbol or include randomness in prediction. See jupyter notebook
                 random_prediction_ABBA.ipynb.
+
+        patches - bool
+                Use patches when creating forecasted time series. See ABBA module.
+
+        remove_anomaly - bool
+                Prevent forecast of any symbol which occurred only once during
+                ABBA construction
         """
+        # No more training, evaluate mode.
+        self.model.eval()
 
-        model = self.model
-        pred_l = self.l
-
+        # Store first l values.
         if isinstance(self.abba, ABBA):
-            prediction_txt = self.ABBA_representation_string[0:pred_l]
-            prediction = self.training_data[0:pred_l]
+            prediction_txt = self.ABBA_representation_string[0:self.l]
+            prediction = self.training_data[0:self.l]
+            # Store single letters.
+            if remove_anomaly:
+                c = dict(Counter(self.ABBA_representation_string))
+                single_letters = [ord(key)-97 for key in c if c[key]==1]
         else:
-            prediction = self.training_data[0:pred_l].tolist()
+            prediction = self.training_data[0:self.l].tolist()
 
-        for ind in range(pred_l, len(self.training_data)):
+        # Recursively make one-step forecasts
+        for ind in range(self.l, len(self.training_data)):
+
+            # Build data to feed into model
             if self.stateful:
                 window = []
-                for i in np.arange(ind%pred_l, ind, pred_l):
-                    window.append(prediction[i:i+pred_l])
+                for i in np.arange(ind%self.l, ind, self.l):
+                    window.append(prediction[i:i+self.l])
             else:
-                window = prediction[-pred_l:]
-
+                window = prediction[-self.l:]
             pred_x =  np.array(window).astype(float)
-            pred_x = np.array(pred_x).reshape(-1, pred_l, self.features)
+            pred_x = np.array(pred_x).reshape(-1, self.l, self.features)
 
-            states = model.initialise_states()
+            # Feed through model
+            states = self.model.initialise_states()
             for el in pred_x:
-                p, states = model.forward(torch.tensor(el).float(), (states[0].detach(), states[1].detach()))
+                p, states = self.model.forward(torch.tensor(el).float(), (states[0].detach(), states[1].detach()))
 
+            # Convert to appropriate form
             if isinstance(self.abba, ABBA):
                 softmax = torch.nn.Softmax(dim=-1)
                 p = softmax(p).tolist()
@@ -494,9 +507,22 @@ class LSTM_model(object):
                 p /= p.sum()
                 if randomize_abba:
                     # include some randomness in prediction
-                    idx = np.random.choice(range(self.features), p=p.ravel())
+                    if remove_anomaly:
+                        distribution = p
+                        distribution[single_letters] = 0 # remove probability form single letters
+                        distribution /= sum(distribution) # scale so sum = 1
+                        idx = np.random.choice(range(self.features), p=distribution)
+                    else:
+                        idx = np.random.choice(range(self.features), p=(p.ravel()))
                 else:
-                    idx = np.argmax(list(p), axis = 0)
+                    if remove_anomaly:
+                        distribution = p
+                        distribution[single_letters] = 0 # remove probability form single letters
+                        idx = np.argmax(distribution, axis = 0)
+                    else:
+                        idx = np.argmax(list(p), axis = 0)
+
+                # Add forecast result to appropriate vectors.
                 prediction_txt += self.alphabet[idx]
                 add = np.zeros([1, self.features])
                 add[0, idx] = 1
@@ -505,18 +531,34 @@ class LSTM_model(object):
                 prediction.append(float(p))
 
         if isinstance(self.abba, ABBA):
-            self.start_prediction_ts =  self.mean + np.dot(self.std,self.abba.inverse_transform(prediction_txt, self.centers, self.normalised_data[0]))
-            self.start_prediction_txt = prediction_txt
+            if patches:
+                ABBA_patches = self.abba.get_patches(self.normalised_data, self.pieces, self.ABBA_representation_string, self.centers)
+                # Construct mean of each patch
+                d = {}
+                for key in ABBA_patches:
+                    d[key] = list(np.mean(ABBA_patches[key], axis=0))
+
+                # Stitch patches together
+                patched_ts = np.array([self.normalised_data[0]])
+                for letter in prediction_txt:
+                    patch = d[letter]
+                    patch -= patch[0] - patched_ts[-1] # shift vertically
+                    patched_ts = np.hstack((patched_ts, patch[1:]))
+                self.generate_ts =  self.mean + np.dot(self.std, patched_ts[1:])
+            else:
+                self.generate_ts =  self.mean + np.dot(self.std, self.abba.inverse_transform(prediction_txt, self.centers, self.normalised_data[0]))
+
+            self.generate_txt = prediction_txt
         else:
-            self.start_prediction_ts = self.mean + np.dot(self.std, prediction)
+            # Reverse normalisation procedure
+            self.generate_ts = self.mean + np.dot(self.std, prediction)
 
 
     def forecast_in_sample(self, randomize_abba=False):
         """
-        In sample forecasting makes a one step prediction at every point of
-        the training data. When ABBA is being used, this equates to one symbol
-        symbol forecast, and so the plot will look a lot like multistep forecast
-        for the numerical case.
+        In sample forecasting makes a one step prediction at every time point.
+        When ABBA is being used, this equates to one symbol forecast, and so the
+        plot looks a lot like multistep forecast for the numerical case.
 
         Parameters
         ----------
@@ -524,63 +566,82 @@ class LSTM_model(object):
                 When forecasting using ABBA representation, we can either
                 forecast most likely symbol or include randomness in forecast.
                 See jupyter notebook random_prediction_ABBA.ipynb.
-        """
 
-        model = self.model
-        model.eval()
-        pred_l = self.l
+        remove_anomaly - bool
+                Prevent forecast of any symbol which occurred only once during
+                ABBA construction
+        """
+        self.model.eval()
 
         prediction = []
         if isinstance(self.abba, ABBA):
             prediction_txt = []
+
+            if remove_anomaly:
+                c = dict(Counter(self.ABBA_representation_string))
+                single_letters = [ord(key)-97 for key in c if c[key]==1]
         training_data = self.training_data[::]
 
-        for ind in range(pred_l, len(self.training_data)):
+        for ind in range(self.l, len(self.training_data)):
             if self.stateful:
                 window = []
-                for i in np.arange(ind%pred_l, ind, pred_l):
-                    window.append(training_data[i:i+pred_l])
+                for i in np.arange(ind%self.l, ind, self.l):
+                    window.append(training_data[i:i+self.l])
             else:
-                window = training_data[ind-pred_l:ind]
+                window = training_data[ind-self.l:ind]
 
             window = np.array(window).astype(float)
-            pred_x = np.array(window).reshape(-1,  pred_l, self.features)
+            pred_x = np.array(window).reshape(-1,  self.l, self.features)
 
-            states = model.initialise_states()
+            states = self.model.initialise_states()
             for el in pred_x:
-                p, states = model.forward(torch.tensor(el).float(), (states[0].detach(), states[1].detach()))
-                softmax = torch.nn.Softmax(dim=-1)
-                p = softmax(p).tolist()
-                p = np.array(p)
-                p /= p.sum()
-                if randomize_abba:
-                    # include some randomness in prediction
-                    idx = np.random.choice(range(self.features), p=(p.ravel()))
+                p, states = self.model.forward(torch.tensor(el).float(), (states[0].detach(), states[1].detach()))
+
+                # Convert to appropriate form
+                if isinstance(self.abba, ABBA):
+                    softmax = torch.nn.Softmax(dim=-1)
+                    p = softmax(p).tolist()
+                    p = np.array(p)
+                    p /= p.sum()
+                    if randomize_abba:
+                        # include some randomness in prediction
+                        if remove_anomaly:
+                            distribution = p
+                            distribution[single_letters] = 0 # remove probability form single letters
+                            distribution /= sum(distribution) # scale so sum = 1
+                            idx = np.random.choice(range(self.features), p=distribution)
+                        else:
+                            idx = np.random.choice(range(self.features), p=(p.ravel()))
+                    else:
+                        if remove_anomaly:
+                            distribution = p
+                            distribution[single_letters] = 0 # remove probability form single letters
+                            idx = np.argmax(distribution, axis = 0)
+                        else:
+                            idx = np.argmax(list(p), axis = 0)
+
+                    prediction_txt.append(self.alphabet[idx])
+
+                    tts = self.abba.inverse_transform(self.ABBA_representation_string[0:ind], self.centers, self.normalised_data[0])
+                    prediction += (self.abba.inverse_transform(self.alphabet[idx], self.centers, tts[-1]))
                 else:
-                    idx = np.argmax(list(p), axis = 0)
-                prediction_txt.append(self.alphabet[idx])
-
-                tts = self.abba.inverse_transform(self.ABBA_representation_string[0:ind], self.centers, self.normalised_data[0])
-                prediction += (self.abba.inverse_transform(self.alphabet[idx], self.centers, tts[-1]))
-
-            else:
-                prediction.append(float(p))
+                    prediction.append(float(p))
 
         if isinstance(self.abba, ABBA):
-            self.point_prediction_ts = self.mean + np.dot(self.std, prediction)
-            self.point_prediction_txt = prediction_txt
+            self.in_sample_ts = self.mean + np.dot(self.std, prediction)
+            self.in_sample_txt = prediction_txt
         else:
-            self.point_prediction_ts = self.mean +np.dot(self.std, prediction)
+            self.in_sample_ts = self.mean +np.dot(self.std, prediction)
 
 
-    def forecast_out_of_sample(self, l, randomize_abba=False, patches=True, remove_anomaly=True):
+    def forecast_out_of_sample(self, fl, randomize_abba=False, patches=True, remove_anomaly=True):
         """
-        Given a fully trained LSTM model, forecast the next l subsequent datapoints.
-        If ABBA representation has been used, this will forecast l symbols.
+        Given a fully trained LSTM model, forecast the next fl subsequent datapoints.
+        If ABBA representation has been used, this will forecast fl symbols.
 
         Parameters
         ----------
-        l - float
+        fl - float
                 Number of forecasted out_of_sample datapoints.
 
         randomize_abba - bool
@@ -595,11 +656,7 @@ class LSTM_model(object):
                 Prevent forecast of any symbol which occurred only once during
                 ABBA construction
         """
-
-        model = self.model
-        model.eval()
-        pred_l = self.l
-
+        self.model.eval()
 
         if isinstance(self.abba, ABBA):
             prediction_txt = ''
@@ -611,23 +668,23 @@ class LSTM_model(object):
         else:
             prediction = self.training_data[::].tolist()
 
-        # Recursively make l one-step forecasts
-        for ind in range(len(self.training_data), len(self.training_data) + l):
+        # Recursively make fl one-step forecasts
+        for ind in range(len(self.training_data), len(self.training_data) + fl):
 
             # Build data to feed into model
             if self.stateful:
                 window = []
-                for i in np.arange(ind%pred_l, ind, pred_l):
-                    window.append(prediction[i:i+pred_l])
+                for i in np.arange(ind%self.l, ind, self.l):
+                    window.append(prediction[i:i+self.l])
             else:
-                window = prediction[-pred_l:]
+                window = prediction[-self.l:]
             pred_x =  np.array(window).astype(float)
-            pred_x = np.array(pred_x).reshape(-1, pred_l, self.features)
+            pred_x = np.array(pred_x).reshape(-1, self.l, self.features)
 
             # Feed through model
-            states = model.initialise_states()
+            states = self.model.initialise_states()
             for el in pred_x:
-                p, states = model.forward(torch.tensor(el).float(), (states[0].detach(), states[1].detach()))
+                p, states = self.model.forward(torch.tensor(el).float(), (states[0].detach(), states[1].detach()))
 
             # Convert to appropriate form
             if isinstance(self.abba, ABBA):
@@ -683,67 +740,3 @@ class LSTM_model(object):
         else:
             # Reverse normalisation procedure
             self.out_of_sample_ts = self.mean + np.dot(self.std, prediction[len(self.training_data):])
-
-    def _figure(self, fig_ratio=.7, fig_scale=1):
-        """
-        Utility function for plot.
-        """
-
-        plt.figure(num=None, figsize=(5/fig_scale, 5*fig_ratio/fig_scale), dpi=80*fig_scale, facecolor='w', edgecolor='k')
-        plt.subplots_adjust(left=0.11*fig_scale, right=1-0.05*fig_scale, bottom=0.085*fig_scale/fig_ratio, top=1-0.05*fig_scale/fig_ratio)
-
-
-    def _savepdf(self, Activationfname='test', fig_scale=1):
-        """
-        Utility function for plot.
-        """
-
-        plt.savefig(fname+'.png', dpi=300*fig_scale, transparent=True)
-        plt.savefig(fname+'.pdf', dpi=300*fig_scale, transparent=True)
-
-
-    def plot(self, fname=None, type='end', fig_ratio=.7, fig_scale=1):
-        """
-        Simple plotting function for prediction.
-
-        Parameters
-        ----------
-        fname - string
-                Filename if saving plots. If fname = None, then plot is displayed
-                rather than saved.
-
-        type - string
-                'start': Plot start prediction
-                'point': Plot point prediction
-                'end': Plot end prediction
-        """
-
-        if type == 'start':
-            self._figure(fig_ratio, fig_scale)
-            plot(self.ts)
-            plot(self.start_prediction_ts, 'r')
-            if fname == None:
-                plt.show()
-            else:
-                self._savepdf(fname + '_' + 'start')
-
-        elif type == 'point':
-            self._figure(fig_ratio, fig_scale)
-            plot(self.ts)
-            plot(np.arange(self.l, self.l + len(self.point_prediction_ts)), self.point_prediction_ts, 'r')
-            if fname == None:
-                plt.show()
-            else:
-                self._savepdf(fname + '_' + 'point')
-
-        elif type == 'end':
-            self._figure(fig_ratio, fig_scale)
-            plot(self.ts)
-            plot(np.arange(len(self.ts)-1, len(self.end_prediction_ts)), self.end_prediction_ts[len(self.ts)-1:] , 'r')
-            if fname == None:
-                plt.show()
-            else:
-                self._savepdf(fname + '_' + 'end')
-
-        else:
-            raise TypeError('Type not recognised!')

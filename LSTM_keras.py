@@ -58,8 +58,8 @@ class LSTM_model(object):
     optimizer                       - optimization algorithm used
     epoch                           - number of iterations used during training
     loss                            - list of loss value at each iteration
-    start_prediction_ts             - numeric start prediction
-    start_prediction_txt            - symbolic start prediction
+    generate_ts                     - numeric generative forecast
+    generate_txt                    - symbolic generative forecast
     in_sample_ts                    - numeric in sample forecast
     in_sample_txt                   - symbolic in sample forecast
     out_of_sample_ts                - numeric out of sample forecast
@@ -413,24 +413,24 @@ class LSTM_model(object):
         """
 
         model = self.model
-        pred_l = self.l
+        self.l = self.l
 
         if isinstance(self.abba, ABBA):
-            prediction_txt = self.ABBA_representation_string[0:pred_l]
-            prediction = self.training_data[0:pred_l]
+            prediction_txt = self.ABBA_representation_string[0:self.l]
+            prediction = self.training_data[0:self.l]
         else:
-            prediction = self.training_data[0:pred_l].tolist()
+            prediction = self.training_data[0:self.l].tolist()
 
-        for ind in range(pred_l, len(self.training_data)):
+        for ind in range(self.l, len(self.training_data)):
             if self.stateful:
                 window = []
-                for i in np.arange(ind%pred_l, ind, pred_l):
-                    window.append(prediction[i:i+pred_l])
+                for i in np.arange(ind%self.l, ind, self.l):
+                    window.append(prediction[i:i+self.l])
             else:
-                window = prediction[-pred_l:]
+                window = prediction[-self.l:]
 
             pred_x =  np.array(window).astype(float)
-            pred_x = np.array(pred_x).reshape(-1, pred_l, self.features)
+            pred_x = np.array(pred_x).reshape(-1, self.l, self.features)
             p = model.predict(pred_x, batch_size = 1)
             if isinstance(self.abba, ABBA):
                 if randomize_abba:
@@ -456,10 +456,9 @@ class LSTM_model(object):
 
     def forecast_in_sample(self, randomize_abba=False):
         """
-        In sample forecasting makes a one step prediction at every point of
-        the training data. When ABBA is being used, this equates to one symbol
-        symbol forecast, and so the plot will look a lot like multistep forecast
-        for the numerical case.
+        In sample forecasting makes a one step prediction at every time point.
+        When ABBA is being used, this equates to one symbol forecast, and so the
+        plot looks a lot like multistep forecast for the numerical case.
 
         Parameters
         ----------
@@ -467,33 +466,52 @@ class LSTM_model(object):
                 When forecasting using ABBA representation, we can either
                 forecast most likely symbol or include randomness in forecast.
                 See jupyter notebook random_prediction_ABBA.ipynb.
+
+        remove_anomaly - bool
+                Prevent forecast of any symbol which occurred only once during
+                ABBA construction
         """
 
         model = self.model
-        pred_l = self.l
 
         prediction = []
         if isinstance(self.abba, ABBA):
             prediction_txt = []
+
+            if remove_anomaly:
+                c = dict(Counter(self.ABBA_representation_string))
+                single_letters = [ord(key)-97 for key in c if c[key]==1]
         training_data = self.training_data[::]
 
-        for ind in range(pred_l, len(self.training_data)):
+        for ind in range(self.l, len(self.training_data)):
             if self.stateful:
                 window = []
-                for i in np.arange(ind%pred_l, ind, pred_l):
-                    window.append(training_data[i:i+pred_l])
+                for i in np.arange(ind%self.l, ind, self.l):
+                    window.append(training_data[i:i+self.l])
             else:
-                window = training_data[ind-pred_l:ind]
+                window = training_data[ind-self.l:ind]
 
             window = np.array(window).astype(float)
-            pred_x = np.array(window).reshape(-1,  pred_l, self.features)
+            pred_x = np.array(window).reshape(-1,  self.l, self.features)
+
             p = model.predict(pred_x, batch_size = 1)
             if isinstance(self.abba, ABBA):
                 if randomize_abba:
                     # include some randomness in prediction
-                    idx = np.random.choice(range(self.features), p=p[-1].ravel())
+                    if remove_anomaly:
+                        distribution = p[-1].ravel()
+                        distribution[single_letters] = 0 # remove probability form single letters
+                        distribution /= sum(distribution) # scale so sum = 1
+                        idx = np.random.choice(range(self.features), p=distribution)
+                    else:
+                        idx = np.random.choice(range(self.features), p=p[-1].ravel())
                 else:
-                    idx = np.argmax(p[-1], axis = 0)
+                    if remove_anomaly:
+                        distribution = p[-1].ravel()
+                        distribution[single_letters] = 0 # remove probability form single letters
+                        idx = np.argmax(distribution, axis = 0)
+                    else:
+                        idx = np.argmax(p[-1], axis = 0)
                 prediction_txt.append(self.alphabet[idx])
 
                 tts = self.abba.inverse_transform(self.ABBA_representation_string[0:ind], self.centers, self.normalised_data[0])
@@ -511,14 +529,14 @@ class LSTM_model(object):
             self.in_sample_ts = self.mean +np.dot(self.std, prediction)
 
 
-    def forecast_out_of_sample(self, l, randomize_abba=False, patches=True, remove_anomaly=True):
+    def forecast_out_of_sample(self, fl, randomize_abba=False, patches=True, remove_anomaly=True):
         """
-        Given a fully trained LSTM model, forecast the next l subsequent datapoints.
-        If ABBA representation has been used, this will forecast l symbols.
+        Given a fully trained LSTM model, forecast the next fl subsequent datapoints.
+        If ABBA representation has been used, this will forecast fl symbols.
 
         Parameters
         ----------
-        l - float
+        fl - float
                 Number of forecasted out_of_sample datapoints.
 
         randomize_abba - bool
@@ -543,8 +561,8 @@ class LSTM_model(object):
         else:
             prediction = self.training_data[::].tolist()
 
-        # Recursively make l one-step forecasts
-        for ind in range(len(self.training_data), len(self.training_data) + l):
+        # Recursively make fl one-step forecasts
+        for ind in range(len(self.training_data), len(self.training_data) + fl):
 
             # Build data to feed into model
             if self.stateful:
@@ -623,7 +641,7 @@ class LSTM_model(object):
             return None
 
         model = self.model
-        pred_l = self.l
+        self.l = self.l
 
         prediction_txts = [self.ABBA_representation_string[::]]
         predictions = [self.training_data[::]]
@@ -633,13 +651,13 @@ class LSTM_model(object):
             for j in range(len(predictions)):
                 if self.stateful:
                     window = []
-                    for i in np.arange(ind%pred_l, ind, pred_l):
-                        window.append(predictions[j][i:i+pred_l])
+                    for i in np.arange(ind%self.l, ind, self.l):
+                        window.append(predictions[j][i:i+self.l])
                 else:
-                    window = prediction[j][-pred_l:]
+                    window = prediction[j][-self.l:]
 
                 pred_x =  np.array(window).astype(float)
-                pred_x = np.array(pred_x).reshape(-1, pred_l, self.features)
+                pred_x = np.array(pred_x).reshape(-1, self.l, self.features)
                 p = model.predict(pred_x, batch_size = 1)
 
                 max_prob = np.max(p[-1], axis = 0)
@@ -677,68 +695,3 @@ class LSTM_model(object):
         mu = mu/len(self.end_average_prediction_ts)
 
         self.end_average_prediction_avg = mu
-
-
-    def _figure(self, fig_ratio=.7, fig_scale=1):
-        """
-        Utility function for plot.
-        """
-
-        plt.figure(num=None, figsize=(5/fig_scale, 5*fig_ratio/fig_scale), dpi=80*fig_scale, facecolor='w', edgecolor='k')
-        plt.subplots_adjust(left=0.11*fig_scale, right=1-0.05*fig_scale, bottom=0.085*fig_scale/fig_ratio, top=1-0.05*fig_scale/fig_ratio)
-
-
-    def _savepdf(self, Activationfname='test', fig_scale=1):
-        """
-        Utility function for plot.
-        """
-
-        plt.savefig(fname+'.png', dpi=300*fig_scale, transparent=True)
-        plt.savefig(fname+'.pdf', dpi=300*fig_scale, transparent=True)
-
-
-    def plot(self, *, fname=None, type='end', fig_ratio=.7, fig_scale=1):
-        """
-        Simple plotting function for prediction.
-
-        Parameters
-        ----------
-        fname - string
-                Filename if saving plots. If fname = None, then plot is displayed
-                rather than saved.
-
-        type - string
-                'start': Plot start prediction
-                'point': Plot point prediction
-                'end': Plot end prediction
-        """
-
-        if type == 'start':
-            self._figure(fig_ratio, fig_scale)
-            plot(self.ts)
-            plot(self.start_prediction_ts, 'r')
-            if fname == None:
-                plt.show()
-            else:
-                self._savepdf(fname + '_' + 'start')
-
-        elif type == 'point':
-            self._figure(fig_ratio, fig_scale)
-            plot(self.ts)
-            plot(np.arange(self.l, self.l + len(self.point_prediction_ts)), self.point_prediction_ts, 'r')
-            if fname == None:
-                plt.show()
-            else:
-                self._savepdf(fname + '_' + 'point')
-
-        elif type == 'end':
-            self._figure(fig_ratio, fig_scale)
-            plot(self.ts)
-            plot(np.arange(len(self.ts)-1, len(self.end_prediction_ts)), self.end_prediction_ts[len(self.ts)-1:] , 'r')
-            if fname == None:
-                plt.show()
-            else:
-                self._savepdf(fname + '_' + 'end')
-
-        else:
-            raise TypeError('Type not recognised!')
