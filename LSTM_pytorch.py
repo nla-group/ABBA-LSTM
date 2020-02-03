@@ -3,7 +3,7 @@ import importlib
 import warnings
 spec = importlib.util.find_spec("ABBA")
 if spec is None:
-    warning.warn("Try: pip install -r 'requirements.txt'")
+    warnings.warn("Try: pip install -r 'requirements.txt'")
 from ABBA import ABBA as ABBA
 
 # import all other modules
@@ -205,6 +205,8 @@ class LSTM_model(object):
             # Apply inverse transform.
             self.ABBA_representation_numerical = self.mean + np.dot(self.std, abba.inverse_transform(self.ABBA_representation_string, self.centers, self.normalised_data[0]))
 
+            print('training_data representation:', self.ABBA_representation_string)
+
             # One hot encode symbolic representation. Create list of all symbols
             # in case symbol does not occur in symbolic representation. (example:
             # flat line and insist k>1)
@@ -351,6 +353,7 @@ class LSTM_model(object):
         losses = [0]*self.num_augs
         if self.stateful: # no shuffle and reset state manually
             for iter in range(epoch):
+                #print(iter)
                 rint = np.random.permutation(self.num_augs)
 
                 for r in rint:
@@ -398,6 +401,7 @@ class LSTM_model(object):
 
         else: # shuffle in fit
             for iter in range(epoch):
+                #print(iter)
                 loss_sum = 0
                 for i in np.random.permutation(x[0].shape[0]):
 
