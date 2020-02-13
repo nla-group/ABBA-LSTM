@@ -17,7 +17,6 @@ python test_LSTM.py -v
 
 ## TODO
 - warning if l > length of time series
-- speed up pytorch implementation
 - make keras training deterministic
 
 ## License
@@ -25,5 +24,5 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 file for details
 
 ## References
-[1] S. Elsworth and S. Güttel. LSTMs for Time Series Forecasting: A Symbolic
-    Approach. (In Preparation.)
+[1] S. Elsworth and S. Güttel. Time series forecasting using LSTM networks: a symbolic
+    approach. (In Preparation.)

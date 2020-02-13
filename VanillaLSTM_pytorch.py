@@ -24,61 +24,40 @@ class VanillaLSTM_pytorch(object):
         """
         Build model
         """
-
-        self.sequence = sequence
-
         # Sequence either list of lists or a list.
-        if isinstance(sequence[0], type([])):
+        if sequence.ndim != 1:
             self.features = len(sequence[0])
         else:
             self.features = 1
 
+        # Reshape and convert to torch tensor
+        self.sequence = torch.FloatTensor(sequence).view(-1, 1, self.features)
+
         self.model = pytorch_LSTM(input_dim=self.features, hidden_dim=self.cells_per_layer, batch_size=1, output_dim=self.features, num_layers=self.num_layers, dropout=self.dropout)
         if self.features != 1:
-            self.loss_fn = torch.nn.CrossEntropyLoss()
+            self.loss_fn = torch.nn.CrossEntropyLoss(reduction='sum')
             self.optimizer = torch.optim.Adam(self.model.parameters())
         else:
             self.loss_fn = torch.nn.MSELoss(size_average=False)
             self.optimizer = torch.optim.Adam(self.model.parameters())
         self.model.init_weights(self.model)
 
-    def construct_training_data(self, debug=False):
+    def construct_training_index(self, debug=False):
         """
-        Construct training data (compatible with model) from sequence of vectors of dimension d,
+        Construct training index (compatible with model) from sequence of vectors of dimension d,
         """
         n = len(self.sequence)
-        window = []
+        self.index = []
         if self.stateful:
+            # Create groups
             self.num_augs = min(self.lag, n - self.lag)
             for el in range(self.num_augs):
-                w = []
-                for i in np.arange(el, n - self.lag, self.lag):
-                    w.append(self.sequence[i:i+self.lag+1])
-                window.append(np.array(w).astype(float))
+                self.index.append(np.arange(el, n - self.lag, self.lag))
         else:
             self.num_augs = 1
-            w = []
-            for i in np.arange(0, n - self.lag, 1):
-                w.append(self.sequence[i:i+self.lag+1])
-            window.append(np.array(w).astype(float))
+            self.index = np.arange(0, n - self.lag, 1)
 
-        # batch input of size (number of sequences, timesteps, data dimension)
-        x = []
-        for w in window:
-            x.append(np.array(w[:, 0:-1]).reshape(-1, self.lag, self.features))
-
-        y = []
-        for w in window:
-            # Unable to generalise y for both numeric and symbolic data
-            if self.features != 1:
-                y.append(np.array(w[:, -1, :]))
-            else:
-                y.append(np.array(w[:, -1]).reshape(-1, 1))
-
-        self.x = [torch.FloatTensor(xi) for xi in x]
-        self.y = [torch.FloatTensor(yi) for yi in y]
-
-    def train(self, patience=100, max_epoch=100000, acceptable_loss=np.inf, debug=False):
+    def train(self, patience=10, max_epoch=1000, acceptable_loss=np.inf, weight_restarts=False, debug=False):
         """
         Train the model on the constructed training data
         """
@@ -86,29 +65,31 @@ class VanillaLSTM_pytorch(object):
         # Weight restarts
         ########################################################################
         states = self.model.initialise_states()
-        weight_restarts = 10
-        store_weights = [0]*weight_restarts
-        initial_loss = [0]*weight_restarts
-        for i in range(weight_restarts):
-            # reset cell state
-            states = self.model.initialise_states()
-            y_pred, states = self.model(self.x[0][0], (states[0].detach(), states[1].detach()))
+        if weight_restarts:
+            weight_restarts = 10
+            store_weights = [0]*weight_restarts
+            initial_loss = [0]*weight_restarts
+            for i in range(weight_restarts):
+                # reset cell state
+                states = self.model.initialise_states()
 
-            # calculate loss
-            if self.features == 1:
-                self.loss = self.loss_fn(y_pred, self.y[0][0])
-            else:
-                target = torch.tensor([np.argmax(self.y[0][0], axis = 0)])
-                self.loss = self.loss_fn(y_pred.reshape(1,-1), target)
+                y_pred, states = self.model(self.sequence[0:self.lag, :, :], (states[0].detach(), states[1].detach()))
 
-            initial_loss[i] = self.loss.data
-            store_weights[i] = self.model.state_dict()
+                # calculate loss
+                if self.features == 1:
+                    self.loss = self.loss_fn(y_pred.view(-1, 1), self.sequence[self.lag, :, :])
+                else:
+                    target = self.sequence[self.lag, :, :].max(-1)[1]
+                    self.loss = self.loss_fn(y_pred.reshape(1,-1), target)
 
-            # Re initialise weights
-            self.model.init_weights(self.model)
-        m = np.argmin(initial_loss)
-        self.model.load_state_dict(store_weights[int(m)])
-        del store_weights
+                initial_loss[i] = self.loss.data
+                store_weights[i] = self.model.state_dict()
+
+                # Re initialise weights
+                self.model.init_weights(self.model)
+            m = np.argmin(initial_loss)
+            self.model.load_state_dict(store_weights[int(m)])
+            del store_weights
 
         ########################################################################
         # Train
@@ -119,23 +100,21 @@ class VanillaLSTM_pytorch(object):
         losses = [0]*self.num_augs
         if self.stateful: # no shuffle and reset state manually
             for iter in range(max_epoch):
-                #print(iter)
-                rint = np.random.permutation(self.num_augs)
-
-                for r in rint:
+                rint = np.random.permutation(self.num_augs) # shuffle groups
+                for r in rint: # run through groups
                     # reset cell state
                     states = self.model.initialise_states()
 
                     loss_sum = 0
-                    for i in range(self.x[r].shape[0]):
+                    for i in self.index[r]: # run through group
                         # Forward pass
-                        y_pred, states = self.model(self.x[r][i], (states[0].detach(), states[1].detach()))
+                        y_pred, states = self.model(self.sequence[i:i+self.lag, :, :], (states[0].detach(), states[1].detach()))
 
                         # calculate loss
                         if self.features == 1:
-                            self.loss = self.loss_fn(y_pred, self.y[r][i])
+                            self.loss = self.loss_fn(y_pred.view(-1, 1), self.sequence[i+self.lag, :, :])
                         else:
-                            target = torch.tensor([np.argmax(self.y[r][i], axis = 0)])
+                            target = self.sequence[i+self.lag, :, :].max(-1)[1]
                             self.loss = self.loss_fn(y_pred.reshape(1,-1), target)
 
                         loss_sum += (float(self.loss.data))**2
@@ -148,39 +127,31 @@ class VanillaLSTM_pytorch(object):
                         # clear gradients
                         self.model.zero_grad()
 
-                    losses[r] = loss_sum/self.x[r].shape[0]
+                    losses[r] = loss_sum/len(self.index[r])
                 vec_loss[iter] = np.mean(losses)
 
                 if vec_loss[iter] >= min_loss:
-                    if iter%100 == 0 and debug:
-                        print('iteration:', iter)
-                    if iter - min_loss_ind >= patience and vec_loss[iter]<acceptable_loss:
+                    if iter - min_loss_ind >= patience and min_loss<acceptable_loss:
                         break
                 else:
                     min_loss = vec_loss[iter]
                     old_weights = self.model.state_dict()
-                    if debug:
-                        print('iteration:', iter, 'loss:', min_loss)
                     min_loss_ind = iter
-            if debug:
-                print('iteration:', iter)
 
         else: # shuffle in fit
-            for iter in range(epoch):
-                #print(iter)
+            for iter in range(max_epoch):
                 loss_sum = 0
-                for i in np.random.permutation(self.x[0].shape[0]):
-
+                for i in np.random.permutation(len(self.index)):
                     states = self.model.initialise_states()
 
                     # Forward pass
-                    y_pred, states = self.model.forward(self.x[0][i], (states[0].detach(), states[1].detach()))
+                    y_pred, states = self.model.forward(self.sequence[i:i+self.lag, :, :], (states[0].detach(), states[1].detach()))
 
                     # calculate loss
                     if self.features == 1:
-                        self.loss = self.loss_fn(y_pred, self.y[0][i])
+                        self.loss = self.loss_fn(y_pred.view(-1, 1), self.sequence[i+self.lag, :, :])
                     else:
-                        target = torch.tensor([np.argmax(self.y[0][i], axis = 0)])
+                        target = self.sequence[i+self.lag, :, :].max(-1)[1]
                         self.loss = self.loss_fn(y_pred.reshape(1,-1), target)
 
                     loss_sum += (float(self.loss.data))**2
@@ -193,24 +164,15 @@ class VanillaLSTM_pytorch(object):
                     # clear gradients
                     self.model.zero_grad()
 
-                vec_loss[iter] = loss_sum/self.x[0].shape[0]
+                vec_loss[iter] = loss_sum/len(self.index)
 
                 if vec_loss[iter] >= min_loss:
-                    if iter%100 == 0 and debug:
-                        print('iteration:', iter)
-                    if iter - min_loss_ind >= patience and vec_loss[iter]<acceptable_loss:
+                    if iter - min_loss_ind >= patience and min_loss < acceptable_loss:
                         break
                 else:
                     min_loss = vec_loss[iter]
                     old_weights = self.model.state_dict()
-                    if debug:
-                        print('iteration:', iter, 'loss:', min_loss)
                     min_loss_ind = iter
-            if debug:
-                print('iteration:', iter)
-
-        if debug:
-            print('\nTraining complete! \n')
 
         self.model.load_state_dict(old_weights)
         self.epoch = iter+1
@@ -222,34 +184,23 @@ class VanillaLSTM_pytorch(object):
         Make k step forecast into the future.
         """
         self.model.eval()
-
-        if self.features != 1:
-            prediction = self.sequence[::]
-        else:
-            prediction = self.sequence[::].tolist()
+        prediction = self.sequence.clone()
 
         # Recursively make k one-step forecasts
         for ind in range(len(self.sequence), len(self.sequence) + k):
-
             # Build data to feed into model
             if self.stateful:
-                window = []
-                for i in np.arange(ind%self.lag, ind, self.lag):
-                    window.append(prediction[i:i+self.lag])
+                index = np.arange(ind%self.lag, ind, self.lag)
             else:
-                window = prediction[-self.lag:]
-
-            print(window)
-            pred_x =  np.array(window).astype(float)
-            pred_x = np.array(pred_x).reshape(-1, self.lag, self.features)
+                index = [ind - self.lag]
 
             # Feed through model
             states = self.model.initialise_states()
-            for el in pred_x:
-                p, states = self.model.forward(torch.tensor(el).float(), (states[0].detach(), states[1].detach()))
+            for i in index:
+                p, states = self.model.forward(prediction[i:i+self.lag, :, :], (states[0].detach(), states[1].detach()))
 
             # Convert output
-            if self.features == 1:
+            if self.features != 1:
                 softmax = torch.nn.Softmax(dim=-1)
                 p = softmax(p).tolist()
                 p = np.array(p)
@@ -260,13 +211,19 @@ class VanillaLSTM_pytorch(object):
                     idx = np.argmax(list(p), axis = 0)
 
                 # Add forecast result to appropriate vectors.
-                add = np.zeros([1, self.features])
-                add[0, idx] = 1
-                prediction.append((add.tolist())[0])
+                pred = torch.zeros([1, 1, self.features])
+                pred[0, 0, idx] = 1
             else:
-                prediction.append(float(p))
+                pred = torch.zeros([1, 1, 1])
+                pred[0, 0, 0] = p
 
-        return prediction
+            prediction = torch.cat([prediction, pred], dim=0)
+
+        if self.features != 1:
+            return prediction.view(-1, self.features).tolist()
+        else:
+            return prediction.view(-1).detach()
+
 
 ################################################################################
 ################################################################################

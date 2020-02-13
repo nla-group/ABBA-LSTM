@@ -34,7 +34,7 @@ class forecaster(object):
             # in case symbol does not occur in symbolic representation. (example:
             # flat line and insist k>1)
             self.alphabet = sorted([chr(97+i) for i in range(len(self.centers))])
-            self.sequence = [[0 if char != letter else 1 for char in self.alphabet] for letter in self.ABBA_string]
+            self.sequence = np.array([[0 if char != letter else 1 for char in self.alphabet] for letter in self.ABBA_string])
         else:
             self.sequence = self.normalised_time_series
 
@@ -42,11 +42,38 @@ class forecaster(object):
         self.model_class.build(self.sequence)
 
         # Construct training data
-        self.model_class.construct_training_data()
+        self.model_class.construct_training_index()
 
-    def train(self):
-        self.model_class.train()
+    def train(self, patience=100, max_epoch=100000, acceptable_loss=np.inf):
+        self.model_class.train(patience=patience, max_epoch=max_epoch, acceptable_loss=acceptable_loss)
 
     def forecast(self, k):
         prediction = self.model_class.forecast(k)
-        return prediction
+
+        # Check if ABBA being used?
+        if isinstance(self.abba, ABBA):
+            s = ''
+            for piece in prediction[-k:]:
+                idx = np.argmax(piece, axis = 0)
+                s += self.alphabet[idx]
+
+            patches = self.abba.get_patches(self.normalised_time_series, self.pieces, self.ABBA_string, self.centers)
+            # Construct mean of each patch
+            d = {}
+            for key in patches:
+                d[key] = list(np.mean(patches[key], axis=0))
+
+            prediction = [self.normalised_time_series[-1]]
+            for letter in s:
+                patch = d[letter]
+                patch -= patch[0] - prediction[-1] # shift vertically
+                prediction = prediction + patch[1:].tolist()
+            if self.std == 0:
+                return np.array(prediction[1:k+1]) + self.mean
+            else:
+                return np.array(prediction[1:k+1])*self.std + self.mean
+        else:
+            if self.std == 0:
+                return np.array(prediction[len(self.normalised_time_series):]) + self.mean
+            else:
+                return np.array(prediction[len(self.normalised_time_series):])*self.std + self.mean
