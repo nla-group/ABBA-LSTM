@@ -49,5 +49,4 @@ class forecaster(object):
 
     def forecast(self, k):
         prediction = self.model_class.forecast(k)
-
-        # must convert back?
+        return prediction

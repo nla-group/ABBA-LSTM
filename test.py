@@ -7,6 +7,6 @@ abba = ABBA()
 model = VanillaLSTM_pytorch()
 
 time_series = np.random.rand(100)
-
 f = forecaster(time_series, model, abba=None)
 f.train()
+prediction = f.forecast(10)

@@ -20,7 +20,7 @@ class VanillaLSTM_pytorch(object):
             np.random.seed(seed)
             torch.manual_seed(seed)
 
-    def build(self, sequence):
+    def build(self, sequence, debug=False):
         """
         Build model
         """
@@ -34,7 +34,7 @@ class VanillaLSTM_pytorch(object):
             self.features = 1
 
         self.model = pytorch_LSTM(input_dim=self.features, hidden_dim=self.cells_per_layer, batch_size=1, output_dim=self.features, num_layers=self.num_layers, dropout=self.dropout)
-        if self.features == 1:
+        if self.features != 1:
             self.loss_fn = torch.nn.CrossEntropyLoss()
             self.optimizer = torch.optim.Adam(self.model.parameters())
         else:
@@ -42,7 +42,7 @@ class VanillaLSTM_pytorch(object):
             self.optimizer = torch.optim.Adam(self.model.parameters())
         self.model.init_weights(self.model)
 
-    def construct_training_data(self, other):
+    def construct_training_data(self, debug=False):
         """
         Construct training data (compatible with model) from sequence of vectors of dimension d,
         """
@@ -53,13 +53,13 @@ class VanillaLSTM_pytorch(object):
             for el in range(self.num_augs):
                 w = []
                 for i in np.arange(el, n - self.lag, self.lag):
-                    w.append(self.training_data[i:i+self.lag+1])
+                    w.append(self.sequence[i:i+self.lag+1])
                 window.append(np.array(w).astype(float))
         else:
             self.num_augs = 1
             w = []
             for i in np.arange(0, n - self.lag, 1):
-                w.append(self.training_data[i:i+self.lag+1])
+                w.append(self.sequence[i:i+self.lag+1])
             window.append(np.array(w).astype(float))
 
         # batch input of size (number of sequences, timesteps, data dimension)
@@ -70,7 +70,7 @@ class VanillaLSTM_pytorch(object):
         y = []
         for w in window:
             # Unable to generalise y for both numeric and symbolic data
-            if self.features == 1:
+            if self.features != 1:
                 y.append(np.array(w[:, -1, :]))
             else:
                 y.append(np.array(w[:, -1]).reshape(-1, 1))
@@ -78,11 +78,13 @@ class VanillaLSTM_pytorch(object):
         self.x = [torch.FloatTensor(xi) for xi in x]
         self.y = [torch.FloatTensor(yi) for yi in y]
 
-    def train(self, other):
+    def train(self, patience=100, max_epoch=100000, acceptable_loss=np.inf, debug=False):
         """
         Train the model on the constructed training data
         """
+        ########################################################################
         # Weight restarts
+        ########################################################################
         states = self.model.initialise_states()
         weight_restarts = 10
         store_weights = [0]*weight_restarts
@@ -108,13 +110,15 @@ class VanillaLSTM_pytorch(object):
         self.model.load_state_dict(store_weights[int(m)])
         del store_weights
 
+        ########################################################################
         # Train
-        vec_loss = np.zeros(epoch)
+        ########################################################################
+        vec_loss = np.zeros(max_epoch)
         min_loss = np.inf
         min_loss_ind = np.inf
         losses = [0]*self.num_augs
         if self.stateful: # no shuffle and reset state manually
-            for iter in range(epoch):
+            for iter in range(max_epoch):
                 #print(iter)
                 rint = np.random.permutation(self.num_augs)
 
@@ -123,7 +127,7 @@ class VanillaLSTM_pytorch(object):
                     states = self.model.initialise_states()
 
                     loss_sum = 0
-                    for i in range(x[r].shape[0]):
+                    for i in range(self.x[r].shape[0]):
                         # Forward pass
                         y_pred, states = self.model(self.x[r][i], (states[0].detach(), states[1].detach()))
 
@@ -148,17 +152,17 @@ class VanillaLSTM_pytorch(object):
                 vec_loss[iter] = np.mean(losses)
 
                 if vec_loss[iter] >= min_loss:
-                    if iter%100 == 0 and verbose:
+                    if iter%100 == 0 and debug:
                         print('iteration:', iter)
-                    if iter - min_loss_ind >= self.patience and vec_loss[iter]<self.acceptable_loss:
+                    if iter - min_loss_ind >= patience and vec_loss[iter]<acceptable_loss:
                         break
                 else:
                     min_loss = vec_loss[iter]
                     old_weights = self.model.state_dict()
-                    if verbose:
+                    if debug:
                         print('iteration:', iter, 'loss:', min_loss)
                     min_loss_ind = iter
-            if verbose:
+            if debug:
                 print('iteration:', iter)
 
         else: # shuffle in fit
@@ -192,20 +196,20 @@ class VanillaLSTM_pytorch(object):
                 vec_loss[iter] = loss_sum/self.x[0].shape[0]
 
                 if vec_loss[iter] >= min_loss:
-                    if iter%100 == 0 and verbose:
+                    if iter%100 == 0 and debug:
                         print('iteration:', iter)
-                    if iter - min_loss_ind >= self.patience and vec_loss[iter]<self.acceptable_loss:
+                    if iter - min_loss_ind >= patience and vec_loss[iter]<acceptable_loss:
                         break
                 else:
                     min_loss = vec_loss[iter]
                     old_weights = self.model.state_dict()
-                    if verbose:
+                    if debug:
                         print('iteration:', iter, 'loss:', min_loss)
                     min_loss_ind = iter
-            if verbose:
+            if debug:
                 print('iteration:', iter)
 
-        if verbose:
+        if debug:
             print('\nTraining complete! \n')
 
         self.model.load_state_dict(old_weights)
@@ -213,45 +217,19 @@ class VanillaLSTM_pytorch(object):
         self.loss = vec_loss[0:iter+1]
 
 
-    def forecast(self, k, other):
+    def forecast(self, k, randomize=False, debug=False):
         """
         Make k step forecast into the future.
         """
-        """
-        Given a fully trained LSTM model, forecast the next fl subsequent datapoints.
-        If ABBA representation has been used, this will forecast fl symbols.
-
-        Parameters
-        ----------
-        fl - float
-                Number of forecasted out_of_sample datapoints.
-
-        randomize_abba - bool
-                When forecasting using ABBA representation, we can either
-                forecast most likely symbol or include randomness in forecast.
-                See jupyter notebook random_prediction_ABBA.ipynb.
-
-        patches - bool
-                Use patches when creating forecasted time series. See ABBA module.
-
-        remove_anomaly - bool
-                Prevent forecast of any symbol which occurred only once during
-                ABBA construction
-        """
         self.model.eval()
 
-        if isinstance(self.abba, ABBA):
-            prediction_txt = ''
-            prediction = self.training_data[::]
-
-            if remove_anomaly:
-                c = dict(Counter(self.ABBA_representation_string))
-                single_letters = [ord(key)-97 for key in c if c[key]==1]
+        if self.features != 1:
+            prediction = self.sequence[::]
         else:
-            prediction = self.training_data[::].tolist()
+            prediction = self.sequence[::].tolist()
 
-        # Recursively make fl one-step forecasts
-        for ind in range(len(self.training_data), len(self.training_data) + fl):
+        # Recursively make k one-step forecasts
+        for ind in range(len(self.sequence), len(self.sequence) + k):
 
             # Build data to feed into model
             if self.stateful:
@@ -260,6 +238,8 @@ class VanillaLSTM_pytorch(object):
                     window.append(prediction[i:i+self.lag])
             else:
                 window = prediction[-self.lag:]
+
+            print(window)
             pred_x =  np.array(window).astype(float)
             pred_x = np.array(pred_x).reshape(-1, self.lag, self.features)
 
@@ -268,37 +248,25 @@ class VanillaLSTM_pytorch(object):
             for el in pred_x:
                 p, states = self.model.forward(torch.tensor(el).float(), (states[0].detach(), states[1].detach()))
 
-            # Convert to appropriate form
-            if isinstance(self.abba, ABBA):
+            # Convert output
+            if self.features == 1:
                 softmax = torch.nn.Softmax(dim=-1)
                 p = softmax(p).tolist()
                 p = np.array(p)
                 p /= p.sum()
-                if randomize_abba:
-                    # include some randomness in prediction
-                    if remove_anomaly:
-                        distribution = p
-                        distribution[single_letters] = 0 # remove probability form single letters
-                        distribution /= sum(distribution) # scale so sum = 1
-                        idx = np.random.choice(range(self.features), p=distribution)
-                    else:
-                        idx = np.random.choice(range(self.features), p=(p.ravel()))
+                if randomize:
+                    idx = np.random.choice(range(self.features), p=(p.ravel()))
                 else:
-                    if remove_anomaly:
-                        distribution = p
-                        distribution[single_letters] = 0 # remove probability form single letters
-                        idx = np.argmax(distribution, axis = 0)
-                    else:
-                        idx = np.argmax(list(p), axis = 0)
+                    idx = np.argmax(list(p), axis = 0)
 
                 # Add forecast result to appropriate vectors.
-                prediction_txt += self.alphabet[idx]
                 add = np.zeros([1, self.features])
                 add[0, idx] = 1
                 prediction.append((add.tolist())[0])
             else:
                 prediction.append(float(p))
 
+        return prediction
 
 ################################################################################
 ################################################################################
