@@ -3,3 +3,5 @@ dev
 examples
 paper
 src
+.ipynb_checkpoints
+LSTMvsATTLSTM.ipynb
