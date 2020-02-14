@@ -2,81 +2,120 @@ import unittest
 from forecaster import forecaster
 from VanillaLSTM_pytorch import VanillaLSTM_pytorch
 from VanillaLSTM_keras import VanillaLSTM_keras
+from VanillaLSTM_batch_keras import VanillaLSTM_batch_keras
 from ABBA import ABBA as ABBA
 import numpy as np
 
 class test_LSTM(unittest.TestCase):
 
+    ##################################################
+    # VanillaLSTM_keras
+    ##################################################
     def test_VanillaLSTM_stateful_numeric_keras(self):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=VanillaLSTM_keras(stateful=True), abba=None)
-        f.train(max_epoch=100)
+        f.train(max_epoch=200)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
+        print(prediction)
         self.assertTrue(prediction == [2, 3, 2, 1, 2, 3, 2, 1, 2, 3])
 
     def test_VanillaLSTM_stateless_numeric_keras(self):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=VanillaLSTM_keras(stateful=False), abba=None)
-        f.train(max_epoch=100)
+        f.train(max_epoch=200)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
+        print(prediction)
         self.assertTrue(prediction == [2, 3, 2, 1, 2, 3, 2, 1, 2, 3])
 
     def test_VanillaLSTM_stateful_symbolic_keras(self):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=VanillaLSTM_keras(stateful=True), abba=ABBA(max_len=2, verbose=0))
-        f.train(max_epoch=100)
+        f.train(max_epoch=200)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
+        print(prediction)
         self.assertTrue(prediction == [2, 3, 2, 1, 2, 3, 2, 1, 2, 3])
 
     def test_VanillaLSTM_stateless_symbolic_keras(self):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=VanillaLSTM_keras(stateful=False), abba=ABBA(max_len=2, verbose=0))
-        f.train(max_epoch=100)
+        f.train(max_epoch=200)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
+        print(prediction)
         self.assertTrue(prediction == [2, 3, 2, 1, 2, 3, 2, 1, 2, 3])
 
+
+    ##################################################
+    # VanillaLSTM_pytorch
+    ##################################################
     def test_VanillaLSTM_stateful_numeric_pytorch(self):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=VanillaLSTM_pytorch(stateful=True), abba=None)
-        f.train(max_epoch=100)
+        f.train(max_epoch=200)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
+        print(prediction)
         self.assertTrue(prediction == [2, 3, 2, 1, 2, 3, 2, 1, 2, 3])
 
     def test_VanillaLSTM_stateless_numeric_pytorch(self):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=VanillaLSTM_pytorch(stateful=False), abba=None)
-        f.train(max_epoch=100)
+        f.train(max_epoch=200)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
+        print(prediction)
         self.assertTrue(prediction == [2, 3, 2, 1, 2, 3, 2, 1, 2, 3])
 
     def test_VanillaLSTM_stateful_symbolic_pytorch(self):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=VanillaLSTM_pytorch(stateful=True), abba=ABBA(max_len=2, verbose=0))
-        f.train(max_epoch=100)
+        f.train(max_epoch=200)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
+        print(prediction)
         self.assertTrue(prediction == [2, 3, 2, 1, 2, 3, 2, 1, 2, 3])
 
     def test_VanillaLSTM_stateless_symbolic_pytorch(self):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=VanillaLSTM_pytorch(stateful=False), abba=ABBA(max_len=2, verbose=0))
-        f.train(max_epoch=100)
+        f.train(max_epoch=200)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
+        print(prediction)
+        self.assertTrue(prediction == [2, 3, 2, 1, 2, 3, 2, 1, 2, 3])
+
+    ##################################################
+    # VanillaLSTM_batch_keras
+    ##################################################
+    def test_VanillaLSTM_batch_numeric_keras(self):
+        time_series = [1, 2, 3, 2]*100 + [1]
+        k = 10
+        f = forecaster(time_series, model=VanillaLSTM_batch_keras(), abba=None)
+        f.train(max_epoch=400)
+        prediction = f.forecast(k).tolist()
+        prediction = [round(p) for p in prediction]
+        print(prediction)
+        self.assertTrue(prediction == [2, 3, 2, 1, 2, 3, 2, 1, 2, 3])
+
+    def test_VanillaLSTM_batch_symbolic_keras(self):
+        time_series = [1, 2, 3, 2]*100 + [1]
+        k = 10
+        f = forecaster(time_series, model=VanillaLSTM_batch_keras(), abba=ABBA(max_len=2, verbose=0))
+        f.train(max_epoch=400)
+        prediction = f.forecast(k).tolist()
+        prediction = [round(p) for p in prediction]
+        print(prediction)
         self.assertTrue(prediction == [2, 3, 2, 1, 2, 3, 2, 1, 2, 3])
 
 

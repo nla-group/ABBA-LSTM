@@ -168,7 +168,7 @@ class VanillaLSTM_keras(object):
         Make k step forecast into the future.
         """
         prediction = copy.deepcopy(self.sequence)
-        # Recursively make fl one-step forecasts
+        # Recursively make k one-step forecasts
         for ind in range(self.sequence.shape[1], self.sequence.shape[1] + k):
             # Build data to feed into model
             if self.stateful:
