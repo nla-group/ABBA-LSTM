@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-class VanillaLSTM_pytorch(object):
+class batchless_VanillaLSTM_pytorch(object):
     """ Vanilla LSTM implementation using pytorch """
 
     def __init__(self, num_layers=2, cells_per_layer=50, dropout=0.5, seed=None, stateful=True, lag=5):

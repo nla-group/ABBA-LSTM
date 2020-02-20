@@ -4,4 +4,6 @@ examples
 paper
 src
 .ipynb_checkpoints
-LSTMvsATTLSTM.ipynb
+sine_test.ipynb
+example.py
+old_paper

@@ -6,21 +6,17 @@ logging.getLogger("tensorflow_hub").setLevel(logging.CRITICAL)
 import keras as K
 import copy
 
-class VanillaLSTM_keras(object):
-    """ Vanilla LSTM implementation using keras """
+class ANN_keras(object):
+    """ ANN implementation using keras """
 
-    def __init__(self, num_layers=2, cells_per_layer=50, dropout=0, seed=None, lag=5):
+    def __init__(self, num_layers=2, neurons_per_layer=50, dropout=0.5, lag=5):
         """
         Initialise and build the model
         """
         self.num_layers = num_layers
-        self.cells_per_layer = cells_per_layer
+        self.neurons_per_layer = neurons_per_layer
         self.dropout = dropout
-        self.seed = seed
         self.lag = lag
-
-        if seed != None:
-            np.random.seed(seed)
 
 
     def build(self, sequence, debug=False):
@@ -35,9 +31,19 @@ class VanillaLSTM_keras(object):
         else:
             self.features = 1
 
-        self.model = build_Keras_LSTM(self.num_layers, self.cells_per_layer, self.lag, self.features,  self.dropout)
+        self.model = K.models.Sequential()
+        for index in range(self.num_layers):
+            if index == 0:
+                self.model.add(K.layers.Dense(self.neurons_per_layer, input_shape=(self.lag, self.features), activation='relu'))
+                self.model.add(K.layers.Dropout(self.dropout))
+            else:
+                self.model.add(K.layers.Dense(self.neurons_per_layer, activation='relu'))
+                self.model.add(K.layers.Dropout(self.dropout))
+
+        self.model.add(K.layers.Dense(self.features))
 
         if self.features != 1:
+            self.model.add(K.layers.Activation('softmax'))
             self.model.compile(loss='categorical_crossentropy', optimizer=K.optimizers.Adam())
         else:
             self.model.compile(loss='mse', optimizer=K.optimizers.Adam())
@@ -84,30 +90,3 @@ class VanillaLSTM_keras(object):
                 prediction = np.hstack([prediction, pred])
 
         return prediction
-
-################################################################################
-################################################################################
-################################################################################
-
-def build_Keras_LSTM(num_layers, cells_per_layer, lag, features,dropout):
-    model = K.models.Sequential()
-    for index in range(num_layers):
-        if index == 0:
-            if num_layers == 1:
-                model.add(K.layers.LSTM(cells_per_layer, input_shape=(lag, features), recurrent_activation='tanh', return_sequences=False))
-                model.add(K.layers.Dropout(dropout))
-            else:
-                model.add(K.layers.LSTM(cells_per_layer, input_shape=(lag, features), recurrent_activation='tanh', return_sequences=True))
-                model.add(K.layers.Dropout(dropout))
-        elif index == num_layers-1:
-            model.add(K.layers.LSTM(cells_per_layer, recurrent_activation='tanh', return_sequences=False))
-            model.add(K.layers.Dropout(dropout))
-        else:
-            model.add(K.layers.LSTM(cells_per_layer, recurrent_activation='tanh', return_sequences=True))
-            model.add(K.layers.Dropout(dropout))
-
-    model.add(K.layers.Dense(features))
-
-    if features != 1:
-        model.add(K.layers.Activation('softmax'))
-    return model

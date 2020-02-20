@@ -6,41 +6,40 @@ logging.getLogger("tensorflow_hub").setLevel(logging.CRITICAL)
 import keras as K
 import copy
 
-class VanillaLSTM_batch_keras(object):
-    """ Vanilla LSTM implementation using keras """
+class AttentionLSTM_keras(object):
+    """ Attention LSTM implementation using keras """
 
-    def __init__(self, num_layers=2, cells_per_layer=50, dropout=0.5, seed=None, lag=5):
+    def __init__(self, LSTM_cells=50, Dense_neurons = 50, lag=5):
         """
         Initialise and build the model
         """
-        self.num_layers = num_layers
-        self.cells_per_layer = cells_per_layer
-        self.dropout = dropout
-        self.seed = seed
+        self.LSTM_cells = LSTM_cells
+        self.Dense_neurons = Dense_neurons
         self.lag = lag
-
-        if seed != None:
-            np.random.seed(seed)
-
 
     def build(self, sequence, debug=False):
         """
         Build model
         """
         self.sequence = sequence
-
         # Sequence either list of lists or a list.
         if sequence.ndim != 1:
             self.features = len(sequence[0])
+            warnings.warn('AttentionLSTM does not support ABBA representations')
         else:
             self.features = 1
 
-        self.model = build_Keras_LSTM(self.num_layers, self.cells_per_layer, self.lag, self.features,  self.dropout)
+        input_layer = K.layers.Input(shape=(self.lag, self.features), dtype='float32')
+        x = K.layers.LSTM(self.LSTM_cells, return_sequences=True)(input_layer)
+        attention_pre = K.layers.Dense(1)(x)
+        attention_probs = K.layers.Softmax()(attention_pre)
+        attention_mul = K.layers.Lambda(lambda x:x[0]*x[1])([attention_probs,x])
+        x = K.layers.Flatten()(attention_mul)
+        x = K.layers.Dense(self.Dense_neurons, activation='relu')(x)
+        preds = K.layers.Dense(1, activation='linear')(x)
+        self.model = K.models.Model(input_layer, preds)
+        self.model.compile(loss='mse', optimizer=K.optimizers.Adam(),metrics=['mse'])
 
-        if self.features != 1:
-            self.model.compile(loss='categorical_crossentropy', optimizer=K.optimizers.Adam())
-        else:
-            self.model.compile(loss='mse', optimizer=K.optimizers.Adam())
 
     def construct_training_index(self, debug=False):
         """
@@ -84,30 +83,3 @@ class VanillaLSTM_batch_keras(object):
                 prediction = np.hstack([prediction, pred])
 
         return prediction
-
-################################################################################
-################################################################################
-################################################################################
-
-def build_Keras_LSTM(num_layers, cells_per_layer, lag, features,dropout):
-    model = K.models.Sequential()
-    for index in range(num_layers):
-        if index == 0:
-            if num_layers == 1:
-                model.add(K.layers.LSTM(cells_per_layer, input_shape=(lag, features), recurrent_activation='tanh', return_sequences=False))
-                model.add(K.layers.Dropout(dropout))
-            else:
-                model.add(K.layers.LSTM(cells_per_layer, input_shape=(lag, features), recurrent_activation='tanh', return_sequences=True))
-                model.add(K.layers.Dropout(dropout))
-        elif index == num_layers-1:
-            model.add(K.layers.LSTM(cells_per_layer, recurrent_activation='tanh', return_sequences=False))
-            model.add(K.layers.Dropout(dropout))
-        else:
-            model.add(K.layers.LSTM(cells_per_layer, recurrent_activation='tanh', return_sequences=True))
-            model.add(K.layers.Dropout(dropout))
-
-    model.add(K.layers.Dense(features))
-
-    if features != 1:
-        model.add(K.layers.Activation('softmax'))
-    return model
