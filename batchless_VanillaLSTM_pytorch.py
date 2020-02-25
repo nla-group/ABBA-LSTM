@@ -57,10 +57,12 @@ class batchless_VanillaLSTM_pytorch(object):
             self.num_augs = 1
             self.index = np.arange(0, n - self.lag, 1)
 
-    def train(self, patience=10, max_epoch=1000, acceptable_loss=np.inf, weight_restarts=False, debug=False):
+    def train(self, patience=10, max_epoch=1000, acceptable_loss=np.inf, batch_size=1, weight_restarts=False, debug=False):
         """
         Train the model on the constructed training data
         """
+        if batch_size != 1:
+            warnings.warn('batch_size must equal 1, setting to 1.')
         ########################################################################
         # Weight restarts
         ########################################################################

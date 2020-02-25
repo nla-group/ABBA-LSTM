@@ -44,8 +44,8 @@ class forecaster(object):
         # Construct training data
         self.model_class.construct_training_index()
 
-    def train(self, patience=100, max_epoch=100000, acceptable_loss=np.inf):
-        self.model_class.train(patience=patience, max_epoch=max_epoch, acceptable_loss=acceptable_loss)
+    def train(self, patience=100, max_epoch=100000, acceptable_loss=np.inf, batch_size=128):
+        self.model_class.train(patience=patience, max_epoch=max_epoch, acceptable_loss=acceptable_loss, batch_size=batch_size)
 
     def forecast(self, k):
         prediction = self.model_class.forecast(k)

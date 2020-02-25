@@ -67,7 +67,7 @@ class batchless_VanillaLSTM_keras(object):
             self.num_augs = 1
             self.index = np.arange(0, n - self.lag, 1)
 
-    def train(self, patience=100, max_epoch=100000, acceptable_loss=np.inf, weight_restarts=False, debug=False):
+    def train(self, patience=100, max_epoch=100000, acceptable_loss=np.inf, batch_size = 1, weight_restarts=False, debug=False):
         """
         Train the model on the constructed training data
         """
