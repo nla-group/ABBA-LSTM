@@ -6,6 +6,7 @@ logging.getLogger("tensorflow_hub").setLevel(logging.CRITICAL)
 import keras as K
 import tensorflow as tf
 import copy
+import warnings
 
 class batchless_VanillaLSTM_keras(object):
     """ Vanilla LSTM implementation using keras """

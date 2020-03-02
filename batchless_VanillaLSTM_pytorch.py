@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import warnings
 
 class batchless_VanillaLSTM_pytorch(object):
     """ Vanilla LSTM implementation using pytorch """

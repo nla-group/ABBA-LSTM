@@ -10,7 +10,7 @@ pip install -r requirements.txt
 ## Testing
 Run the unit tests by the following command:
 ```
-python test_LSTM.py -v
+python unittest_tests.py -v
 ```
 
 ## Example

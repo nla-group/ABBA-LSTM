@@ -15,7 +15,7 @@ class test_LSTM(unittest.TestCase):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=batchless_VanillaLSTM_keras(stateful=True), abba=None)
-        f.train(max_epoch=200)
+        f.train(max_epoch=400)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
         print(prediction)
@@ -25,7 +25,7 @@ class test_LSTM(unittest.TestCase):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=batchless_VanillaLSTM_keras(stateful=False), abba=None)
-        f.train(max_epoch=200)
+        f.train(max_epoch=400)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
         print(prediction)
@@ -35,7 +35,7 @@ class test_LSTM(unittest.TestCase):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=batchless_VanillaLSTM_keras(stateful=True), abba=ABBA(max_len=2, verbose=0))
-        f.train(max_epoch=200)
+        f.train(max_epoch=400)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
         print(prediction)
@@ -45,7 +45,7 @@ class test_LSTM(unittest.TestCase):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=batchless_VanillaLSTM_keras(stateful=False), abba=ABBA(max_len=2, verbose=0))
-        f.train(max_epoch=200)
+        f.train(max_epoch=400)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
         print(prediction)
@@ -59,7 +59,7 @@ class test_LSTM(unittest.TestCase):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=batchless_VanillaLSTM_pytorch(stateful=True), abba=None)
-        f.train(max_epoch=200)
+        f.train(max_epoch=400)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
         print(prediction)
@@ -69,7 +69,7 @@ class test_LSTM(unittest.TestCase):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=batchless_VanillaLSTM_pytorch(stateful=False), abba=None)
-        f.train(max_epoch=200)
+        f.train(max_epoch=400)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
         print(prediction)
@@ -79,7 +79,7 @@ class test_LSTM(unittest.TestCase):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=batchless_VanillaLSTM_pytorch(stateful=True), abba=ABBA(max_len=2, verbose=0))
-        f.train(max_epoch=200)
+        f.train(max_epoch=400)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
         print(prediction)
@@ -89,7 +89,7 @@ class test_LSTM(unittest.TestCase):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=batchless_VanillaLSTM_pytorch(stateful=False), abba=ABBA(max_len=2, verbose=0))
-        f.train(max_epoch=200)
+        f.train(max_epoch=400)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
         print(prediction)
