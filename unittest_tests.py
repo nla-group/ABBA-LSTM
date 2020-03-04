@@ -25,7 +25,7 @@ class test_LSTM(unittest.TestCase):
         time_series = [1, 2, 3, 2]*100 + [1]
         k = 10
         f = forecaster(time_series, model=batchless_VanillaLSTM_keras(stateful=False), abba=None)
-        f.train(max_epoch=500, patience=50)
+        f.train(max_epoch=2000, patience=200)
         prediction = f.forecast(k).tolist()
         prediction = [round(p) for p in prediction]
         print(prediction)
