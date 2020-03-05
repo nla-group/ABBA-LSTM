@@ -1,5 +1,8 @@
-# LSTMs for Time Series Forecasting: A Symbolic Approach
+[![Build Status](https://travis-ci.com/nla-group/ABBA-LSTMs.svg?branch=master)](https://travis-ci.com/nla-group/ABBA-LSTMs)
+[![codecov](https://codecov.io/gh/nla-group/ABBA-LSTMs/branch/master/graph/badge.svg)](https://codecov.io/gh/nla-group/ABBA-LSTMs)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+# LSTMs for Time Series Forecasting: A Symbolic Approach
 
 ### Prerequisites
 Install Python packages:
